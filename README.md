@@ -189,7 +189,7 @@ triangular factor, and computes a shifted-SVD pseudospectrum grid.
 
 | Pseudospectrum |
 |:---:|
-| <img src="examples/figures/ex5_volterra_schur_besselj1.png" width="100%" /> |
+| <img src="examples/figures/ex5_volterra_schur_besselj1.png" width="70%" /> |
 | The contour plot shows the pseudospectrum of the Legendre based Volterra matrix. |
 
 ### Example 6. Nonlinear Volterra-Urysohn Picard iteration
