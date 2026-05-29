@@ -103,7 +103,7 @@ Vu = compVolt_nonlinear_fast(Knl, cu; grid=grid, truncate_output=true)
 
 This project currently provides seven example studies.  The scripts write their
 main numerical outputs to `examples/figures`; the previews below use checked-in
-PNG files for GitHub rendering, with PDF links kept for high-quality output.
+PNG files for GitHub rendering.
 
 ### Example 1. Aging Maxwell second-kind Volterra equation
 
@@ -120,23 +120,15 @@ narrow smoothed step layers.  The script assembles `voltmat_cheb_square`,
 checks convergence in values and coefficients, and compares the numerical and
 exact solutions.
 
-Figures:
+| Solution | Error convergence |
+|:---:|:---:|
+| <img src="examples/figures/ex1_aging_maxwell_solution.png" width="100%" /> | <img src="examples/figures/ex1_aging_maxwell_error_vs_N.png" width="100%" /> |
+| The numerical solution matches the manufactured exact solution. | The error decreases as the truncation dimension \(N\) increases. |
 
-![Solution vs exact](examples/figures/ex1_aging_maxwell_solution.png)
-
-[PDF version](examples/figures/ex1_aging_maxwell_solution.pdf)
-
-![Error vs N](examples/figures/ex1_aging_maxwell_error_vs_N.png)
-
-[PDF version](examples/figures/ex1_aging_maxwell_error_vs_N.pdf)
-
-![Coefficient magnitudes](examples/figures/ex1_aging_maxwell_coefficients.png)
-
-[PDF version](examples/figures/ex1_aging_maxwell_coefficients.pdf)
-
-![Right-hand side](examples/figures/ex1_aging_maxwell_rhs.png)
-
-[PDF version](examples/figures/ex1_aging_maxwell_rhs.pdf)
+| Coefficients | Right-hand side |
+|:---:|:---:|
+| <img src="examples/figures/ex1_aging_maxwell_coefficients.png" width="100%" /> | <img src="examples/figures/ex1_aging_maxwell_rhs.png" width="100%" /> |
+| The coefficient magnitudes show spectral decay. | The plot shows the manufactured forcing term used in the equation. |
 
 ### Example 2. First-kind Volterra equation: direct vs differentiated
 
@@ -156,15 +148,10 @@ against differentiating it to a second-kind equation,
 for two smooth Gaussian-type kernels.  The figures show max-error convergence
 for both approaches.
 
-Figures:
-
-![Kernel K1 comparison](examples/figures/ex2_compare_K1_direct_vs_differentiated.png)
-
-[PDF version](examples/figures/ex2_compare_K1_direct_vs_differentiated.pdf)
-
-![Kernel K2 comparison](examples/figures/ex2_compare_K2_direct_vs_differentiated.png)
-
-[PDF version](examples/figures/ex2_compare_K2_direct_vs_differentiated.pdf)
+| Kernel K1 | Kernel K2 |
+|:---:|:---:|
+| <img src="examples/figures/ex2_compare_K1_direct_vs_differentiated.png" width="100%" /> | <img src="examples/figures/ex2_compare_K2_direct_vs_differentiated.png" width="100%" /> |
+| The curve compares direct first-kind solving with the differentiated second-kind formulation. | The curve repeats the direct-versus-differentiated comparison for the second kernel. |
 
 ### Example 3. Pantograph first-kind Volterra equation
 
@@ -175,27 +162,15 @@ restriction matrices `restmat_cheb`, Chebyshev multiplication, and
 The script also checks matrix structure and writes a sparsity plot for the
 `N=100` system matrix.
 
-Figures:
+| BigFloat RHS error | BigFloat RHS big-truth error |
+|:---:|:---:|
+| <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
+| The maximum error is shown for the high-precision right-hand side. | The curve compares the high-precision solution against the big-truth reference. |
 
-![BigFloat RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.png)
-
-[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.pdf)
-
-![BigFloat RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png)
-
-[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf)
-
-![Float64 RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.png)
-
-[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.pdf)
-
-![Float64 RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.png)
-
-[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf)
-
-![Matrix sparsity at N=100](examples/figures/ex3_pantograph_cheb_A100_spy.png)
-
-[PDF version](examples/figures/ex3_pantograph_cheb_A100_spy.pdf)
+| Float64 RHS error | Float64 RHS big-truth error | Matrix sparsity |
+|:---:|:---:|:---:|
+| <img src="examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="100%" /> |
+| The maximum error is shown for the Float64 right-hand side. | The curve measures the Float64 RHS solution against the big-truth reference. | The sparsity plot shows the assembled \(N=100\) coupled system. |
 
 ### Example 4. Singularly perturbed Volterra integro-differential equation
 
@@ -205,19 +180,10 @@ solution `sin(t) + exp(-t/eps)`.  The script builds a rectangular
 Chebyshev/ultraspherical tau system, uses `voltmat_cheb_square` for the
 Volterra term, and reports true and Cauchy-type errors as `N` grows.
 
-Figures:
-
-![Solution vs exact](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.png)
-
-[PDF version](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.pdf)
-
-![True error vs N](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.png)
-
-[PDF version](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.pdf)
-
-![Cauchy coefficient error](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.png)
-
-[PDF version](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.pdf)
+| Solution | True error | Cauchy coefficient error |
+|:---:|:---:|:---:|
+| <img src="examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.png" width="100%" /> | <img src="examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.png" width="100%" /> | <img src="examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.png" width="100%" /> |
+| The numerical solution is compared with the exact boundary-layer solution. | The true error is tracked as \(N\) grows. | The Cauchy coefficient error monitors convergence of the coefficient tail. |
 
 ### Example 5. Legendre Volterra pseudospectrum
 
@@ -226,11 +192,10 @@ Legendre-basis Volterra matrix for
 `K(x,y)=-im*besselj(1, 2*(x-y)+x*y)`, normalizes it, forms a Schur
 triangular factor, and computes a shifted-SVD pseudospectrum grid.
 
-Figure:
-
-![Bessel-J1 Volterra pseudospectrum](examples/figures/ex5_volterra_schur_besselj1.png)
-
-[PDF version](examples/figures/ex5_volterra_schur_besselj1.pdf)
+| Pseudospectrum |
+|:---:|
+| <img src="examples/figures/ex5_volterra_schur_besselj1.png" width="100%" /> |
+| The contour plot shows the shifted-SVD pseudospectrum of the normalized Volterra matrix. |
 
 ### Example 6. Nonlinear Volterra-Urysohn Picard iteration
 
@@ -245,15 +210,10 @@ It uses `compVolt_nonlinear_fast` inside Picard iteration and compares the
 computed solution with a manufactured Lambert-W-based exact solution.  The
 iteration-history plot shows error and update decay.
 
-Figures:
-
-![Solution vs exact](examples/figures/ex6_solution_lambertW_picard_N1024.png)
-
-[PDF version](examples/figures/ex6_solution_lambertW_picard_N1024.pdf)
-
-![Picard error decay](examples/figures/ex6_picard_error_decay_N1024.png)
-
-[PDF version](examples/figures/ex6_picard_error_decay_N1024.pdf)
+| Solution | Picard error decay |
+|:---:|:---:|
+| <img src="examples/figures/ex6_solution_lambertW_picard_N1024.png" width="100%" /> | <img src="examples/figures/ex6_picard_error_decay_N1024.png" width="100%" /> |
+| The Picard solution is compared with the Lambert-W manufactured exact solution. | The iteration history shows both solution error and Picard update decay. |
 
 ### Example 7. Weakly singular rational-kernel Volterra equation
 
@@ -269,15 +229,10 @@ Chebyshev basis.  A BigFloat tanh-sinh quadrature is used to project the
 right-hand side, and the figures show convergence plus the numerical/exact
 solution comparison.
 
-Figures:
-
-![Solution vs exact](examples/figures/ex7_weak_singular_rational_kernel_solution.png)
-
-[PDF version](examples/figures/ex7_weak_singular_rational_kernel_solution.pdf)
-
-![Error vs N](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.png)
-
-[PDF version](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.pdf)
+| Solution | Error convergence |
+|:---:|:---:|
+| <img src="examples/figures/ex7_weak_singular_rational_kernel_solution.png" width="100%" /> | <img src="examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.png" width="100%" /> |
+| The numerical solution is compared with the exact weakly singular solution. | The maximum error is shown as the truncation dimension \(N\) increases. |
 
 ## Benchmark Figures
 
@@ -285,29 +240,19 @@ The following timing figures summarize matrix-construction behavior from the
 benchmark scripts in `test/`.  They include fixed-kernel-complexity/varying-`N`,
 fixed-`N`/varying-bandwidth, and weakly singular `weak_voltmat_cheb` timings.
 
-### Runtime with fixed kernel complexity and varying N
+### Smooth-kernel assembly timings
 
-![Chebyshev/Jacobi, fixed C and varying N](test/figures/bench_fixedC_varyN_time.png)
+| Runtime vs \(N\) | Runtime vs kernel size |
+|:---:|:---:|
+| <img src="test/figures/bench_fixedC_varyN_time.png" width="100%" /> | <img src="test/figures/bench_fixedN_varyC_time.png" width="100%" /> |
+| Assembly time is shown as the matrix dimension \(N\) increases. | Assembly time is shown as the kernel expansion size increases. |
 
-[PDF version](test/figures/bench_fixedC_varyN_time.pdf)
+### Weakly singular assembly timings
 
-### Runtime with fixed N and varying bandwidth
-
-![Chebyshev/Jacobi, fixed N and varying C](test/figures/bench_fixedN_varyC_time.png)
-
-[PDF version](test/figures/bench_fixedN_varyC_time.pdf)
-
-### Weak runtime with fixed kernel complexity and varying N
-
-![Weak Chebyshev/JFP, fixed C and varying N](test/figures/bench_weak_fixedC_varyN_time.png)
-
-[PDF version](test/figures/bench_weak_fixedC_varyN_time.pdf)
-
-### Weak runtime with fixed N and varying bandwidth
-
-![Weak Chebyshev/JFP, fixed N and varying C](test/figures/bench_weak_fixedN_varyC_time.png)
-
-[PDF version](test/figures/bench_weak_fixedN_varyC_time.pdf)
+| Runtime vs \(N\) | Runtime vs kernel size |
+|:---:|:---:|
+| <img src="test/figures/bench_weak_fixedC_varyN_time.png" width="100%" /> | <img src="test/figures/bench_weak_fixedN_varyC_time.png" width="100%" /> |
+| Weak-kernel assembly time is shown as the matrix dimension \(N\) increases. | Weak-kernel assembly time is shown as the bandwidth or coefficient size increases. |
 
 ## Reproducing the Examples
 
