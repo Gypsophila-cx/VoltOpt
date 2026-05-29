@@ -162,15 +162,10 @@ restriction matrices `restmat_cheb`, Chebyshev multiplication, and
 The script also checks matrix structure and writes a sparsity plot for the
 `N=100` system matrix.
 
-| BigFloat RHS error | BigFloat RHS big-truth error |
+| Matrix sparsity | BigFloat RHS big-truth error |
 |:---:|:---:|
-| <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
-| The maximum error is shown for the high-precision right-hand side. | The curve compares the high-precision solution against the big-truth reference. |
-
-| Float64 RHS error | Float64 RHS big-truth error | Matrix sparsity |
-|:---:|:---:|:---:|
-| <img src="examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="100%" /> |
-| The maximum error is shown for the Float64 right-hand side. | The curve measures the Float64 RHS solution against the big-truth reference. | The sparsity plot shows the assembled \(N=100\) coupled system. |
+| <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
+| The sparsity plot shows the assembled \(N=100\) coupled system. | The curve compares the high-precision solution against the big-truth reference. |
 
 ### Example 4. Singularly perturbed Volterra integro-differential equation
 
@@ -180,10 +175,10 @@ solution `sin(t) + exp(-t/eps)`.  The script builds a rectangular
 Chebyshev/ultraspherical tau system, uses `voltmat_cheb_square` for the
 Volterra term, and reports true and Cauchy-type errors as `N` grows.
 
-| Solution | True error | Cauchy coefficient error |
-|:---:|:---:|:---:|
-| <img src="examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.png" width="100%" /> | <img src="examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.png" width="100%" /> | <img src="examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.png" width="100%" /> |
-| The numerical solution is compared with the exact boundary-layer solution. | The true error is tracked as \(N\) grows. | The Cauchy coefficient error monitors convergence of the coefficient tail. |
+| Solution | Cauchy coefficient error |
+|:---:|:---:|
+| <img src="examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.png" width="100%" /> | <img src="examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.png" width="100%" /> |
+| The numerical solution is compared with the exact boundary-layer solution. | The Cauchy coefficient error monitors convergence of the coefficient tail. |
 
 ### Example 5. Legendre Volterra pseudospectrum
 
@@ -195,7 +190,7 @@ triangular factor, and computes a shifted-SVD pseudospectrum grid.
 | Pseudospectrum |
 |:---:|
 | <img src="examples/figures/ex5_volterra_schur_besselj1.png" width="100%" /> |
-| The contour plot shows the shifted-SVD pseudospectrum of the normalized Volterra matrix. |
+| The contour plot shows the pseudospectrum of the Legendre based Volterra matrix. |
 
 ### Example 6. Nonlinear Volterra-Urysohn Picard iteration
 
