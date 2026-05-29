@@ -101,6 +101,147 @@ Vu = compVolt_nonlinear_fast(Knl, cu; grid=grid, truncate_output=true)
 
 ## Examples
 
+This project currently provides seven example studies.  The scripts write their
+main numerical outputs to `examples/figures`; the links below point to the
+checked-in PDF results.
+
+### Example 1. Aging Maxwell second-kind Volterra equation
+
+`examples/ex1_2ndVolterraEqn/ex1_aging_maxwell.jl` solves a manufactured
+second-kind Volterra equation
+
+```math
+u(x) + \int_{-1}^{x} K(x,y)u(y)\,dy = f(x),
+```
+
+with an aging Maxwell-type smooth kernel
+`K(x,y)=exp(-(x-y)/tau(x,y))/tau(x,y)` and an exact solution containing two
+narrow smoothed step layers.  The script assembles `voltmat_cheb_square`,
+checks convergence in values and coefficients, and compares the numerical and
+exact solutions.
+
+Figures:
+
+- [Solution vs exact](examples/figures/ex1_aging_maxwell_solution.pdf)
+- [Error vs N](examples/figures/ex1_aging_maxwell_error_vs_N.pdf)
+- [Coefficient magnitudes](examples/figures/ex1_aging_maxwell_coefficients.pdf)
+- [Right-hand side](examples/figures/ex1_aging_maxwell_rhs.pdf)
+
+### Example 2. First-kind Volterra equation: direct vs differentiated
+
+`examples/ex2_1stVolterraEqn/ex2_firstkind_direct_vs_differentiated.jl`
+compares solving a first-kind equation directly,
+
+```math
+V_K u = f,
+```
+
+against differentiating it to a second-kind equation,
+
+```math
+(I + V_{K_x})u = f',
+```
+
+for two smooth Gaussian-type kernels.  The figures show max-error convergence
+for both approaches.
+
+Figures:
+
+- [Kernel K1 comparison](examples/figures/ex2_compare_K1_direct_vs_differentiated.pdf)
+- [Kernel K2 comparison](examples/figures/ex2_compare_K2_direct_vs_differentiated.pdf)
+
+### Example 3. Pantograph first-kind Volterra equation
+
+`examples/ex3_pantograph/ex3_pantograph_firstkind.jl` solves a pantograph
+first-kind Volterra problem with delay ratio `q=0.5`.  It uses Chebyshev
+restriction matrices `restmat_cheb`, Chebyshev multiplication, and
+`voltmat_square_from_coeffmat_fft_convolution` to assemble the coupled system.
+The script also checks matrix structure and writes a sparsity plot for the
+`N=100` system matrix.
+
+Figures:
+
+- [BigFloat RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.pdf)
+- [BigFloat RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf)
+- [Float64 RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.pdf)
+- [Float64 RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf)
+- [Matrix sparsity at N=100](examples/figures/ex3_pantograph_cheb_A100_spy.pdf)
+
+### Example 4. Singularly perturbed Volterra integro-differential equation
+
+`examples/ex4_SPVIDE/ex4_SPVIDE.jl` solves a singularly perturbed
+Volterra integro-differential equation with `eps=1e-7`, `mu=-1`, and exact
+solution `sin(t) + exp(-t/eps)`.  The script builds a rectangular
+Chebyshev/ultraspherical tau system, uses `voltmat_cheb_square` for the
+Volterra term, and reports true and Cauchy-type errors as `N` grows.
+
+Figures:
+
+- [Solution vs exact](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.pdf)
+- [True error vs N](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.pdf)
+- [Cauchy coefficient error](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.pdf)
+
+### Example 5. Legendre Volterra pseudospectrum
+
+`examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl` assembles a complex
+Legendre-basis Volterra matrix for
+`K(x,y)=-im*besselj(1, 2*(x-y)+x*y)`, normalizes it, forms a Schur
+triangular factor, and computes a shifted-SVD pseudospectrum grid.
+
+Figure:
+
+- [Bessel-J1 Volterra pseudospectrum](examples/figures/ex5_volterra_schur_besselj1.pdf)
+
+### Example 6. Nonlinear Volterra-Urysohn Picard iteration
+
+`examples/ex6_nonlinear/ex6_nonlinear_picard.jl` solves a nonlinear
+saturated-memory Volterra-Urysohn equation with
+
+```math
+K(x,t,u) = \frac{u}{1+(x-t)u^2}.
+```
+
+It uses `compVolt_nonlinear_fast` inside Picard iteration and compares the
+computed solution with a manufactured Lambert-W-based exact solution.  The
+iteration-history plot shows error and update decay.
+
+Figures:
+
+- [Solution vs exact](examples/figures/ex6_solution_lambertW_picard_N1024.pdf)
+- [Picard error decay](examples/figures/ex6_picard_error_decay_N1024.pdf)
+
+### Example 7. Weakly singular rational-kernel Volterra equation
+
+`examples/ex7_weaksingular/ex7_weaksingular.jl` solves a weakly singular
+second-kind Volterra equation using `weak_voltmat_cheb`.  The smooth part is
+
+```math
+K(x,y)=\frac{1}{(x+1)^2+(y-1)^2},
+```
+
+with `mu=-0.5`, `beta=mu+1`, and a Joukowski/Fourier-polynomial-style mapped
+Chebyshev basis.  A BigFloat tanh-sinh quadrature is used to project the
+right-hand side, and the figures show convergence plus the numerical/exact
+solution comparison.
+
+Figures:
+
+- [Solution vs exact](examples/figures/ex7_weak_singular_rational_kernel_solution.pdf)
+- [Error vs N](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.pdf)
+
+## Benchmark Figures
+
+The following timing figures summarize matrix-construction behavior from the
+benchmark scripts in `test/`.  They include fixed-kernel-complexity/varying-`N`,
+fixed-`N`/varying-bandwidth, and weakly singular `weak_voltmat_cheb` timings.
+
+- [Chebyshev/Jacobi, fixed C and varying N](test/figures/bench_fixedC_varyN_time.pdf)
+- [Chebyshev/Jacobi, fixed N and varying C](test/figures/bench_fixedN_varyC_time.pdf)
+- [Weak Chebyshev/JFP, fixed C and varying N](test/figures/bench_weak_fixedC_varyN_time.pdf)
+- [Weak Chebyshev/JFP, fixed N and varying C](test/figures/bench_weak_fixedN_varyC_time.pdf)
+
+## Reproducing the Examples
+
 Run examples from the repository root with the project environment:
 
 ```powershell
@@ -110,9 +251,12 @@ julia --project=. examples/ex3_pantograph/ex3_pantograph_firstkind.jl
 julia --project=. examples/ex4_SPVIDE/ex4_SPVIDE.jl
 julia --project=. examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl
 julia --project=. examples/ex6_nonlinear/ex6_nonlinear_picard.jl
+julia --project=. examples/ex7_weaksingular/ex7_weaksingular.jl
 ```
 
-All maintained example outputs are written to:
+The standalone example scripts are the seven files above.  The file
+`examples/ex5_psespectra/VoltMat_Leg.jl` is an auxiliary local helper, not a
+separate example.  All maintained example outputs are written to:
 
 ```text
 examples/figures
@@ -120,6 +264,26 @@ examples/figures
 
 with filenames beginning with the example number, such as `ex1_...`,
 `ex2_...`, and so on.
+
+Some examples are computationally heavy and may take tens of seconds or longer
+depending on the machine.
+
+## Reproducing the Benchmarks
+
+Benchmark data are written to `test/data`, and the plotting scripts write PDFs
+to `test/figures`:
+
+```powershell
+julia --project=. test/bench_fixedC_varyN.jl
+julia --project=. test/bench_fixedN_varyC.jl
+julia --project=. test/bench_weak_fixedC_varyN.jl
+julia --project=. test/bench_weak_fixedN_varyC.jl
+
+julia --project=. test/plot_varyNtime.jl
+julia --project=. test/plot_Ctime.jl
+julia --project=. test/plot_weak_varyNtime.jl
+julia --project=. test/plot_weak_Ctime.jl
+```
 
 ## Source Layout
 
@@ -134,6 +298,9 @@ src/cheb*.jl, src/vals2cheb.jl
                               Chebyshev transform and helper routines
 examples/                    reproducible numerical examples
 examples/figures             generated CSV/PDF outputs
+test/                        benchmark scripts
+test/data                    benchmark CSV outputs
+test/figures                 benchmark timing figures
 ```
 
 ## Notes
