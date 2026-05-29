@@ -29,17 +29,45 @@ on triangular Volterra domains.
 
 ## Package Usage
 
-From the repository root:
+Start Julia from the repository root with the project environment activated:
 
 ```powershell
 julia --project=.
 ```
 
-Then in Julia:
+Then load the package:
 
 ```julia
 using VoltOpt
+```
 
+### Smooth Volterra operators
+
+For a smooth kernel (K(x,t)), the package constructs coefficient-space matrices for Volterra integral operators of the form
+
+```math
+(\mathcal{V}_K u)(x)
+=
+\int_{-1}^{x} K(x,t)u(t)\,dt .
+```
+
+If
+
+```math
+u(x) \approx \sum_{k=0}^{N} u_k \phi_k(x),
+```
+
+then the constructed matrix (V) satisfies
+
+```math
+\mathcal{V}_K u
+\approx
+\sum_{\ell=0}^{N} (Vu)_\ell \phi_\ell(x).
+```
+
+For example:
+
+```julia
 K(x, t) = exp(-(x - t)^2)
 
 B_cheb = voltmat_cheb(K, 32)
@@ -47,27 +75,112 @@ B_leg  = voltmat_leg(K, 32)
 R      = restmat_cheb(-1.0, 0.0, 32)
 ```
 
-For weakly singular Volterra kernels, VoltOpt also supports operators of the
-form
+Here `voltmat_cheb` constructs the matrix of (\mathcal{V}_K) in the Chebyshev basis
 
 ```math
-(\mathcal{V}_K u)(x)
+\phi_k(x)=T_k(x),
+```
+
+while `voltmat_leg` constructs the corresponding matrix in the Legendre basis
+
+```math
+\phi_k(x)=P_k(x).
+```
+
+The restriction matrix `restmat_cheb(a,b,N)` represents the affine restriction
+
+```math
+u(x)\mapsto u\left(\frac{b-a}{2}x+\frac{a+b}{2}\right),
+\qquad x\in[-1,1],
+```
+
+in Chebyshev coefficients. For example,
+
+```julia
+R = restmat_cheb(-1.0, 0.0, 32)
+```
+
+constructs the coefficient-space restriction from ([-1,1]) to the subinterval ([-1,0]).
+
+### Weakly singular Volterra operators
+
+The package also supports weakly singular Volterra operators of the form
+
+```math
+(\mathcal{V}_K^\mu u)(x)
 =
 \int_{-1}^{x}
 (x-y)^{-\mu} K(x,y) u(y)\,dy,
 \qquad 0 \le \mu < 1,
 ```
 
-where `K(x,y)` is smooth and the algebraic singularity is handled in a
-Chebyshev/JFP-type weighted basis.  For example, `mu = 0.5` means the kernel
-factor is `(x-y)^(-1/2)`.  A natural mapped-basis choice is
-`beta = 1 - mu`, which leaves the final endpoint multiplier as `(1+z)/2`.
-The constructor lives in
-`src/VoltMat/weak_voltmat_cheb.jl` and is exported as `weak_voltmat_cheb`:
+where (K(x,y)) is smooth and the singular factor is explicitly separated as ((x-y)^{-\mu}).
+
+The weakly singular constructor uses a mapped Chebyshev/JFP-type basis
+
+```math
+Q_n^{\sigma,\beta}(x)
+=
+\left(\frac{x+1}{2}\right)^\sigma
+T_n\left(
+2\left(\frac{x+1}{2}\right)^\beta-1
+\right).
+```
+
+Thus, if
+
+```math
+u(x)\approx
+\sum_{k=0}^{N} u_k Q_k^{\sigma,\beta}(x),
+```
+
+then `weak_voltmat_cheb` constructs a matrix (V) such that
+
+```math
+\mathcal{V}_K^\mu u
+\approx
+\sum_{\ell=0}^{N} (Vu)_\ell Q_\ell^{\sigma,\beta}(x).
+```
+
+In this convention, `mu` is the positive singularity strength. For example,
 
 ```julia
-using VoltOpt
+mu = 0.5
+```
 
+corresponds to
+
+```math
+(x-y)^{-\mu}=(x-y)^{-1/2}.
+```
+
+After the Duffy transformation
+
+```math
+y=\frac{x+1}{2}t+\frac{x-1}{2},
+```
+
+the endpoint factor becomes
+
+```math
+\left(\frac{x+1}{2}\right)^{1-\mu}.
+```
+
+Therefore, a natural mapped-basis choice is
+
+```julia
+beta = 1 - mu
+```
+
+because this makes the final endpoint multiplier simple in the mapped variable
+
+```math
+z=2\left(\frac{x+1}{2}\right)^\beta-1.
+```
+
+For example:
+
+```julia
 K(x, y) = exp(-x * y)
 
 V, info = weak_voltmat_cheb(
@@ -79,29 +192,124 @@ V, info = weak_voltmat_cheb(
 )
 ```
 
-You can also access the implementation modules directly:
+This constructs the coefficient matrix for
+
+```math
+u \mapsto
+\int_{-1}^{x}
+(x-y)^{-1/2} K(x,y) u(y)\,dy
+```
+
+in the mapped Chebyshev basis
+
+```math
+Q_n^{0,1/2}(x)
+=
+T_n\left(
+2\sqrt{\frac{x+1}{2}}-1
+\right).
+```
+
+### Direct access to implementation modules
+
+The main constructors are exported by `VoltOpt`, but the implementation modules can also be accessed directly:
 
 ```julia
-using VoltOpt
+K(x, y) = exp(-x * y)
 
 B = VoltMat_Cheb.voltmat_cheb(K, 32)
-W = Weak_VoltMat_Cheb.weak_voltmat_cheb(K; mu=0.5, sigma=0.0, beta=0.5, N=32)
+
+W = Weak_VoltMat_Cheb.weak_voltmat_cheb(
+    K;
+    mu = 0.5,
+    sigma = 0.0,
+    beta = 0.5,
+    N = 32,
+)
+
 L = VoltMat_Leg.voltmat_leg(K, 32)
 J = VoltMat_Jacobi.voltmat_jacobi(K, 32, 0.0, 0.0)
 ```
 
-For nonlinear Volterra actions:
+Mathematically, these constructors correspond to the same Volterra operator
+
+```math
+(\mathcal{V}_K u)(x)
+=
+\int_{-1}^{x}K(x,y)u(y)\,dy,
+```
+
+but represented in different coefficient bases:
+
+```math
+u(x)=\sum_{k=0}^{N}u_k T_k(x)
+\quad\text{for Chebyshev},
+```
+
+```math
+u(x)=\sum_{k=0}^{N}u_k P_k(x)
+\quad\text{for Legendre},
+```
+
+and more generally
+
+```math
+u(x)=\sum_{k=0}^{N}u_k P_k^{(\alpha,\beta)}(x)
+\quad\text{for Jacobi}.
+```
+
+The weakly singular version instead represents
+
+```math
+(\mathcal{V}_K^\mu u)(x)
+=
+\int_{-1}^{x}(x-y)^{-\mu}K(x,y)u(y)\,dy
+```
+
+in the mapped weighted Chebyshev basis (Q_n^{\sigma,\beta}).
+
+### Nonlinear Volterra actions
+
+For nonlinear Volterra integral actions, the package provides a fast evaluator through `compVolt_nonlinear_fast`. It computes operators of the form
+
+```math
+(\mathcal{N}u)(x)
+=
+\int_{-1}^{x} K(x,t,u(t))\,dt,
+```
+
+where the kernel depends nonlinearly on the unknown function value (u(t)).
+
+For example:
 
 ```julia
-using VoltOpt
-
 grid = CompVoltGrid(64)
+
 cu = zeros(65)
 cu[1] = 1.0
 
 Knl(x, t, u) = u / (1 + (x - t) * u^2)
-Vu = compVolt_nonlinear_fast(Knl, cu; grid=grid, truncate_output=true)
+
+Vu = compVolt_nonlinear_fast(
+    Knl,
+    cu;
+    grid = grid,
+    truncate_output = true,
+)
 ```
+
+This corresponds to the nonlinear Volterra action
+
+```math
+(\mathcal{N}u)(x)
+=
+\int_{-1}^{x}
+\frac{u(t)}{1+(x-t)u(t)^2}
+\,dt.
+```
+
+Here `cu` stores the Chebyshev coefficients of (u), and `Vu` returns the Chebyshev coefficients of (\mathcal{N}u).
+
 
 ## Examples
 

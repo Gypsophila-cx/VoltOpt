@@ -35,7 +35,7 @@ using .VoltOpt
 const WeakCheb = VoltOpt.Weak_VoltMat_Cheb
 
 # ============================================================
-# Problem data
+## Problem data
 # ============================================================
 
 const MU = 0.5
