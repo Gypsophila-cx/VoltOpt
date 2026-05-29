@@ -164,7 +164,7 @@ The script also checks matrix structure and writes a sparsity plot for the
 
 | Matrix sparsity | BigFloat RHS big-truth error |
 |:---:|:---:|
-| <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="100%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
+| <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="60%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
 | The sparsity plot shows the assembled \(N=100\) coupled system. | The curve compares the high-precision solution against the big-truth reference. |
 
 ### Example 4. Singularly perturbed Volterra integro-differential equation
@@ -324,3 +324,4 @@ test/figures                 benchmark timing figures
   longer depending on the machine.
 - `FastAlmostBandedMatrices` is used opportunistically by some examples; when
   the optional fast path is unavailable, those scripts fall back to sparse LU.
+- This project is implemented in Julia 1.11.1.
