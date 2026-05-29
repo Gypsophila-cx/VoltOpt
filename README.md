@@ -16,8 +16,9 @@ on triangular Volterra domains.
   - `restmat_jacobi(a, b, N, alpha, beta)` for Jacobi coefficients.
 - Volterra matrix assembly:
   - `voltmat_cheb` / `VoltMat_Cheb.voltmat_cheb` for Chebyshev-basis square Volterra matrices,
+  - `weak_voltmat_cheb` / `Weak_VoltMat_Cheb.weak_voltmat_cheb` for weakly singular Chebyshev/JFP Volterra matrices,
   - `voltmat_leg` / `VoltMat_Leg.voltmat_leg` for Legendre-basis matrices,
-  - `voltmat_jacobi` / `Voltmat_Jacobi.voltmat_jacobi` for Jacobi-basis matrices.
+  - `voltmat_jacobi` / `VoltMat_Jacobi.voltmat_jacobi` for Jacobi-basis matrices.
 - Fast composed/nonlinear Volterra actions:
   - `compVolt`, `compVolt_fast`,
   - `compVolt_nonlinear_fast`,
@@ -46,14 +47,43 @@ B_leg  = voltmat_leg(K, 32)
 R      = restmat_cheb(-1.0, 0.0, 32)
 ```
 
+For weakly singular Volterra kernels, VoltOpt also supports operators of the
+form
+
+```math
+(\mathcal{V}_K u)(x)
+=
+\int_{-1}^{x}
+(x-y)^{-\mu} K(x,y) u(y)\,dy,
+```
+
+where `K(x,y)` is smooth and the algebraic singularity is handled in a
+Chebyshev/JFP-type weighted basis.  The constructor lives in
+`src/VoltMat/weak_voltmat_cheb.jl` and is exported as `weak_voltmat_cheb`:
+
+```julia
+using VoltOpt
+
+K(x, y) = exp(-x * y)
+
+V, info = weak_voltmat_cheb(
+    K;
+    mu = 0.25,
+    sigma = 0.0,
+    beta = 1.25,
+    N = 32,
+)
+```
+
 You can also access the implementation modules directly:
 
 ```julia
 using VoltOpt
 
 B = VoltMat_Cheb.voltmat_cheb(K, 32)
+W = Weak_VoltMat_Cheb.weak_voltmat_cheb(K; mu=0.25, sigma=0.0, beta=1.25, N=32)
 L = VoltMat_Leg.voltmat_leg(K, 32)
-J = Voltmat_Jacobi.voltmat_jacobi(K, 32, 0.0, 0.0)
+J = VoltMat_Jacobi.voltmat_jacobi(K, 32, 0.0, 0.0)
 ```
 
 For nonlinear Volterra actions:
@@ -97,6 +127,8 @@ with filenames beginning with the example number, such as `ex1_...`,
 src/VoltOpt.jl               package entry point and exports
 src/CompVolt/                fast composed and nonlinear Volterra actions
 src/VoltMat/                 Chebyshev, Legendre, and Jacobi Volterra matrices
+src/VoltMat/weak_voltmat_cheb.jl
+                              weakly singular Chebyshev/JFP Volterra matrices
 src/RestMat/                 restriction matrices
 src/cheb*.jl, src/vals2cheb.jl
                               Chebyshev transform and helper routines
@@ -107,6 +139,11 @@ examples/figures             generated CSV/PDF outputs
 ## Notes
 
 - The main package entry point now imports and re-exports the primary routines.
+- Smooth-kernel Volterra matrix constructors handle nonsingular kernels.  The
+  weak Chebyshev/JFP constructor handles endpoint/history-variable weak
+  singular weights; the resulting matrices may use lower-banded upper
+  Hessenberg or related sparse storage rather than a simple approximately
+  banded smooth-kernel structure.
 - Some example scripts are computationally heavy and may take tens of seconds or
   longer depending on the machine.
 - `FastAlmostBandedMatrices` is used opportunistically by some examples; when

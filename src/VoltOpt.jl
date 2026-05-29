@@ -5,15 +5,22 @@ include("chebtechs.jl")
 include("RestMat/restmat_cheb.jl")
 include("RestMat/restmat_jacobi.jl")
 include("VoltMat/voltmat_cheb.jl")
+include("VoltMat/weak_voltmat_cheb.jl")
 include("VoltMat/voltmat_leg.jl")
 include("VoltMat/voltmat_jacobi.jl")
-
-const VoltMat_Jacobi = Voltmat_Jacobi
 
 const voltmat_cheb = VoltMat_Cheb.voltmat_cheb
 const voltmat_cheb_square = VoltMat_Cheb.voltmat_cheb_square
 const voltmat_square_from_coeffmat_fft_convolution =
     VoltMat_Cheb.voltmat_square_from_coeffmat_fft_convolution
+const weak_voltmat_cheb = Weak_VoltMat_Cheb.weak_voltmat_cheb
+const PackedLowerHessenberg = Weak_VoltMat_Cheb.PackedLowerHessenberg
+const packed_to_dense = Weak_VoltMat_Cheb.packed_to_dense
+const phi_beta = Weak_VoltMat_Cheb.phi_beta
+const invphi_beta = Weak_VoltMat_Cheb.invphi_beta
+const mul_transpose! = Weak_VoltMat_Cheb.mul_transpose!
+const validate_weak_voltmat_columns =
+    Weak_VoltMat_Cheb.validate_weak_voltmat_columns
 
 const voltmat_leg = VoltMat_Leg.voltmat_leg
 const legendre_interp_coeffs_Khat = VoltMat_Leg.legendre_interp_coeffs_Khat
@@ -25,16 +32,16 @@ const legendre_values = VoltMat_Leg.legendre_values
 const legendre_values! = VoltMat_Leg.legendre_values!
 const gausslegendre_rule = VoltMat_Leg.gausslegendre_rule
 
-const voltmat_jacobi = Voltmat_Jacobi.voltmat_jacobi
-const voltmat_jacobi_full = Voltmat_Jacobi.voltmat_jacobi_full
-const jacobi_interp_coeffs_Khat = Voltmat_Jacobi.jacobi_interp_coeffs_Khat
+const voltmat_jacobi = VoltMat_Jacobi.voltmat_jacobi
+const voltmat_jacobi_full = VoltMat_Jacobi.voltmat_jacobi_full
+const jacobi_interp_coeffs_Khat = VoltMat_Jacobi.jacobi_interp_coeffs_Khat
 const adaptive_jacobi_interp_coeffs_Khat =
-    Voltmat_Jacobi.adaptive_jacobi_interp_coeffs_Khat
+    VoltMat_Jacobi.adaptive_jacobi_interp_coeffs_Khat
 const jacobi_volterra_topdense_from_C =
-    Voltmat_Jacobi.jacobi_volterra_topdense_from_C
-const jacobi_values = Voltmat_Jacobi.jacobi_values
-const jacobi_values! = Voltmat_Jacobi.jacobi_values!
-const gaussjacobi_nodes = Voltmat_Jacobi.gaussjacobi_nodes
+    VoltMat_Jacobi.jacobi_volterra_topdense_from_C
+const jacobi_values = VoltMat_Jacobi.jacobi_values
+const jacobi_values! = VoltMat_Jacobi.jacobi_values!
+const gaussjacobi_nodes = VoltMat_Jacobi.gaussjacobi_nodes
 
 export vals2cheb,
     cheb2vals_lobatto_fft,
@@ -64,12 +71,19 @@ export vals2cheb,
     compVolt_newton_jv_operator,
     compVolt_nonlinear_residual,
     VoltMat_Cheb,
+    Weak_VoltMat_Cheb,
     VoltMat_Leg,
-    Voltmat_Jacobi,
     VoltMat_Jacobi,
     voltmat_cheb,
     voltmat_cheb_square,
     voltmat_square_from_coeffmat_fft_convolution,
+    weak_voltmat_cheb,
+    PackedLowerHessenberg,
+    packed_to_dense,
+    phi_beta,
+    invphi_beta,
+    mul_transpose!,
+    validate_weak_voltmat_columns,
     voltmat_leg,
     legendre_interp_coeffs_Khat,
     adaptive_legendre_interp_coeffs_Khat,

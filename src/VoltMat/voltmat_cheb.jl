@@ -3,6 +3,10 @@
 # Experimental single-thread FFT-convolution assembly for the Chebyshev Volterra
 # matrix.
 #
+# The default Chebyshev assembly path is the FFT-based Toeplitz--Hankel
+# implementation. The compressed no-FFT paths are retained for validation and
+# experimentation and must be requested explicitly with the `assembly` keyword.
+#
 # Goal:
 #   Reduce the assembly dependence on the absorbed kernel width from roughly
 #
@@ -472,7 +476,7 @@ struct PBlock
 end
 
 
-function _build_P_blocks(C::Matrix{Float64})
+function _build_postmult_coeffs(C::Matrix{Float64})
     n, m = size(C)
 
     P_coeffs = zeros(Float64, n + 1, m)
@@ -496,6 +500,14 @@ function _build_P_blocks(C::Matrix{Float64})
             P_coeffs[i0 + 2, j] += 0.25 * c_i
         end
     end
+
+    return P_coeffs
+end
+
+
+function _build_P_blocks(C::Matrix{Float64})
+    n, m = size(C)
+    P_coeffs = _build_postmult_coeffs(C)
 
     pblocks = Vector{PBlock}(undef, m)
 
@@ -903,6 +915,657 @@ end
 
 
 # =============================================================================
+# Compressed no-FFT assembly
+# =============================================================================
+
+function _precompute_H_zero_matrix(m_total::Int, K_max::Int)
+    H0 = zeros(Float64, K_max + 1, m_total)
+
+    @inbounds for j in 0:(m_total - 1)
+        k_stop = min(K_max, j + 1)
+
+        for k in 0:k_stop
+            H0[k + 1, j + 1] = H_zero_exact_dense(j, k)
+        end
+    end
+
+    return H0
+end
+
+
+function _generate_compressed_dense_top_rows(
+    coeffs::AbstractVector{Float64},
+    H_zero::Matrix{Float64},
+    n::Int,
+    K_max::Int,
+)
+    Kp = K_max + 1
+    ns = 2 * n
+
+    h_dense = zeros(Float64, Kp, ns)
+
+    if ns == 0
+        return h_dense
+    end
+
+    H_prev = zeros(Float64, Kp)
+    H_curr = zeros(Float64, Kp)
+
+    # Offset r = 0 is the only place where the test function enters.  Because
+    # the following recurrence is linear in this initial vector, a Chebyshev
+    # linear combination F(t) = sum_j coeffs[j] T_j(t) can be propagated
+    # directly without forming every H_{j,r,k}.
+    mul!(H_prev, H_zero, coeffs)
+
+    @inbounds @simd for k1 in 1:Kp
+        h_dense[k1, 1] = H_prev[k1]
+    end
+
+    # Only the top offsets 0,...,2n-1 are needed in dense layout.  If the
+    # requested square is smaller than this, the remaining columns are
+    # structurally zero for all available k.
+    top_last = min(ns - 1, K_max)
+
+    @inbounds for s in 0:(top_last - 1)
+        ss = s + 1
+
+        H_curr[ss + 1] = H_prev[ss + 1] / (2.0 * s + 1.0) + H_prev[ss]
+
+        for k in (ss + 1):K_max
+            denom = Float64(k + s)
+            H_curr[k + 1] =
+                ((k - s) / denom) * H_prev[k + 1] +
+                H_prev[k] -
+                ((k - s - 2) / denom) * H_curr[k]
+        end
+
+        col = ss + 1
+
+        for k in ss:K_max
+            h_dense[k + 1, col] = (k / (ss + k)) * H_curr[k + 1]
+        end
+
+        H_prev, H_curr = H_curr, H_prev
+    end
+
+    return h_dense
+end
+
+
+@inline function _has_nonzero(v::AbstractVector{Float64})
+    @inbounds for x in v
+        if x != 0.0
+            return true
+        end
+    end
+
+    return false
+end
+
+
+function _copy_scaled_h_flat!(
+    dest::Vector{Float64},
+    src::Matrix{Float64},
+    n::Int,
+    r_target::Int,
+)
+    s_start = 2 * n
+    num_rows = size(src, 1)
+
+    @inbounds for r in 0:r_target
+        rf = Float64(r)
+        base = r * num_rows
+
+        @simd for s_idx in 1:num_rows
+            s = Float64(s_start + s_idx - 1)
+            denom = 2.0 * s + rf
+            scale = denom == 0.0 ? 1.0 : (s + rf) / denom
+
+            dest[base + s_idx] = scale * src[s_idx, r + 1]
+        end
+    end
+
+    return nothing
+end
+
+
+function _rank_update_compressed_banded!(
+    compressed::Matrix{Float64},
+    P_coeffs::Matrix{Float64},
+    j_idx::Int,
+    scaled_h::Vector{Float64},
+)
+    coeff_col = @view P_coeffs[:, j_idx]
+
+    if _has_nonzero(coeff_col)
+        LinearAlgebra.BLAS.ger!(1.0, coeff_col, scaled_h, compressed)
+    end
+
+    return nothing
+end
+
+
+function _generate_compressed_banded_matrix_rankupdate(
+    P_coeffs::Matrix{Float64},
+    n::Int,
+    m_total::Int,
+    S_max::Int,
+    r_target::Int,
+)
+    if r_target < 0
+        throw(ArgumentError("r_target must be nonnegative"))
+    end
+
+    p_count = size(P_coeffs, 1)
+    s_start = 2 * n
+    num_rows = S_max - s_start + 1
+
+    if num_rows <= 0
+        return zeros(Float64, p_count, 0)
+    end
+
+    grid_len = num_rows * (r_target + 1)
+    compressed = zeros(Float64, p_count, grid_len)
+    scaled_h = zeros(Float64, grid_len)
+
+    # The available stable tail recurrence is still the Chebyshev-j recurrence.
+    # We do not store the full h[j][s,q] tensor; each generated T_j block is
+    # immediately added to the compressed moments for all post-multiplication
+    # x-modes.  This avoids the large 3D tensor, but the rank updates still
+    # carry an extra factor m_total.  A fully compressed tail recurrence would
+    # propagate each F_i(t) directly instead.
+    max_r_needed = r_target + m_total - 1
+
+    H_prev = zeros(Float64, num_rows, max_r_needed + 1)
+    H_curr = zeros(Float64, num_rows, max_r_needed + 1)
+    H_next = zeros(Float64, num_rows, max_r_needed + 1)
+
+    build_base_H_banded!(H_prev, 0, n, S_max, max_r_needed)
+    _copy_scaled_h_flat!(scaled_h, H_prev, n, r_target)
+    _rank_update_compressed_banded!(compressed, P_coeffs, 1, scaled_h)
+
+    if m_total >= 2
+        build_base_H_banded!(H_curr, 1, n, S_max, max_r_needed)
+        _copy_scaled_h_flat!(scaled_h, H_curr, n, r_target)
+        _rank_update_compressed_banded!(compressed, P_coeffs, 2, scaled_h)
+    end
+
+    if m_total <= 2
+        return compressed
+    end
+
+    @inbounds for step::Int in 1:(m_total - 2)
+        curr_j::Int = step + 1
+        curr_r_max::Int = r_target + m_total - 1 - curr_j
+
+        for r::Int in 0:curr_r_max
+            rf::Float64 = Float64(r)
+            col::Int = r + 1
+
+            if r == 0
+                @simd for s_idx in 1:num_rows
+                    s::Float64 = Float64(s_start + s_idx - 1)
+
+                    A_r::Float64 =
+                        (rf + 1.0) * (rf + 2.0 * s) /
+                        ((rf + s) * (2.0 * rf + 2.0 * s + 1.0))
+
+                    B_r::Float64 =
+                        (4.0 * s * s - 1.0) /
+                        ((2.0 * rf + 2.0 * s - 1.0) *
+                         (2.0 * rf + 2.0 * s + 1.0))
+
+                    H_next[s_idx, col] =
+                        2.0 * A_r * H_curr[s_idx, 2] +
+                        2.0 * B_r * H_curr[s_idx, 1] -
+                        H_prev[s_idx, 1]
+                end
+            else
+                @simd for s_idx in 1:num_rows
+                    s::Float64 = Float64(s_start + s_idx - 1)
+
+                    A_r::Float64 =
+                        (rf + 1.0) * (rf + 2.0 * s) /
+                        ((rf + s) * (2.0 * rf + 2.0 * s + 1.0))
+
+                    B_r::Float64 =
+                        (4.0 * s * s - 1.0) /
+                        ((2.0 * rf + 2.0 * s - 1.0) *
+                         (2.0 * rf + 2.0 * s + 1.0))
+
+                    C_r::Float64 =
+                        (rf - 1.0) * (rf + 2.0 * s) /
+                        ((2.0 * rf + 2.0 * s - 1.0) * (rf + s))
+
+                    H_next[s_idx, col] =
+                        2.0 * A_r * H_curr[s_idx, col + 1] +
+                        2.0 * B_r * H_curr[s_idx, col] +
+                        2.0 * C_r * H_curr[s_idx, col - 1] -
+                        H_prev[s_idx, col]
+                end
+            end
+        end
+
+        _copy_scaled_h_flat!(scaled_h, H_next, n, r_target)
+        _rank_update_compressed_banded!(compressed, P_coeffs, curr_j + 1, scaled_h)
+
+        H_prev, H_curr, H_next = H_curr, H_next, H_prev
+    end
+
+    return compressed
+end
+
+
+function _apply_tail_cheb_operator!(
+    dest::Matrix{Float64},
+    src::Matrix{Float64},
+    n::Int,
+    q_stop::Int,
+)
+    s_start = 2 * n
+    num_rows = size(src, 1)
+
+    @inbounds for q in 0:q_stop
+        qf = Float64(q)
+        col = q + 1
+
+        if q == 0
+            @simd for s_idx in 1:num_rows
+                s = Float64(s_start + s_idx - 1)
+
+                A_q =
+                    (qf + 1.0) * (qf + 2.0 * s) /
+                    ((qf + s) * (2.0 * qf + 2.0 * s + 1.0))
+
+                B_q =
+                    (4.0 * s * s - 1.0) /
+                    ((2.0 * qf + 2.0 * s - 1.0) *
+                     (2.0 * qf + 2.0 * s + 1.0))
+
+                dest[s_idx, col] =
+                    2.0 * A_q * src[s_idx, col + 1] +
+                    2.0 * B_q * src[s_idx, col]
+            end
+        else
+            @simd for s_idx in 1:num_rows
+                s = Float64(s_start + s_idx - 1)
+
+                A_q =
+                    (qf + 1.0) * (qf + 2.0 * s) /
+                    ((qf + s) * (2.0 * qf + 2.0 * s + 1.0))
+
+                B_q =
+                    (4.0 * s * s - 1.0) /
+                    ((2.0 * qf + 2.0 * s - 1.0) *
+                     (2.0 * qf + 2.0 * s + 1.0))
+
+                C_q =
+                    (qf - 1.0) * (qf + 2.0 * s) /
+                    ((2.0 * qf + 2.0 * s - 1.0) * (qf + s))
+
+                dest[s_idx, col] =
+                    2.0 * A_q * src[s_idx, col + 1] +
+                    2.0 * B_q * src[s_idx, col] +
+                    2.0 * C_q * src[s_idx, col - 1]
+            end
+        end
+    end
+
+    return nothing
+end
+
+
+function _generate_compressed_banded_matrix_clenshaw(
+    P_coeffs::Matrix{Float64},
+    n::Int,
+    m_total::Int,
+    S_max::Int,
+    r_target::Int,
+)
+    if r_target < 0
+        throw(ArgumentError("r_target must be nonnegative"))
+    end
+
+    p_count = size(P_coeffs, 1)
+    s_start = 2 * n
+    num_rows = S_max - s_start + 1
+
+    if num_rows <= 0
+        return zeros(Float64, p_count, 0)
+    end
+
+    grid_len = num_rows * (r_target + 1)
+    compressed = zeros(Float64, p_count, grid_len)
+
+    # The tail recurrence for individual Chebyshev modes can be written as
+    #
+    #     H_{j+1} = L H_j - H_{j-1},
+    #
+    # where L is the q-banded operator implemented by
+    # _apply_tail_cheb_operator!.  This routine evaluates the Chebyshev
+    # coefficient vector for each compressed test function by Clenshaw's
+    # algorithm, so it does not generate a T_j block and BLAS-rank-update it
+    # into every i.  It is exact for the same finite q-lookahead as the
+    # rank-update recurrence.  The price is that applying L to a dense
+    # coefficient row is still O(m_total * r_target * N), so the tail is not a
+    # strict O(n^2 N) closure for arbitrary dense t-coefficients.
+    q_max = r_target + m_total
+
+    H0 = zeros(Float64, num_rows, q_max + 2)
+    B_next = zeros(Float64, num_rows, q_max + 2)
+    B_next2 = zeros(Float64, num_rows, q_max + 2)
+    B_curr = zeros(Float64, num_rows, q_max + 2)
+    L_work = zeros(Float64, num_rows, q_max + 2)
+
+    build_base_H_banded!(H0, 0, n, S_max, q_max + 1)
+
+    @inbounds for i in 1:p_count
+        coeffs = @view P_coeffs[i, :]
+
+        if !_has_nonzero(coeffs)
+            continue
+        end
+
+        fill!(B_next, 0.0)
+        fill!(B_next2, 0.0)
+
+        for j in (m_total - 1):-1:1
+            _apply_tail_cheb_operator!(L_work, B_next, n, q_max)
+
+            cj = coeffs[j + 1]
+
+            for q in 0:q_max
+                col = q + 1
+
+                @simd for s_idx in 1:num_rows
+                    B_curr[s_idx, col] =
+                        cj * H0[s_idx, col] +
+                        L_work[s_idx, col] -
+                        B_next2[s_idx, col]
+                end
+            end
+
+            # Keep the one-column look-ahead boundary homogeneous.  This is the
+            # same finite-degree closure used implicitly by the j-forward tail
+            # recurrence.
+            @simd for s_idx in 1:num_rows
+                B_curr[s_idx, q_max + 2] = 0.0
+            end
+
+            B_next2, B_next, B_curr = B_next, B_curr, B_next2
+        end
+
+        _apply_tail_cheb_operator!(L_work, B_next, n, r_target)
+
+        c0 = coeffs[1]
+
+        for q in 0:r_target
+            qf = Float64(q)
+            base = q * num_rows
+
+            @simd for s_idx in 1:num_rows
+                s = Float64(s_start + s_idx - 1)
+                denom = 2.0 * s + qf
+                scale = denom == 0.0 ? 1.0 : (s + qf) / denom
+
+                compressed[i, base + s_idx] =
+                    scale * (
+                        c0 * H0[s_idx, q + 1] +
+                        0.5 * L_work[s_idx, q + 1] -
+                        B_next2[s_idx, q + 1]
+                    )
+            end
+        end
+    end
+
+    return compressed
+end
+
+
+function _generate_compressed_banded_matrix(
+    P_coeffs::Matrix{Float64},
+    n::Int,
+    m_total::Int,
+    S_max::Int,
+    r_target::Int;
+    method::Symbol = :clenshaw,
+)
+    if method === :clenshaw
+        return _generate_compressed_banded_matrix_clenshaw(
+            P_coeffs,
+            n,
+            m_total,
+            S_max,
+            r_target,
+        )
+    elseif method === :rankupdate
+        return _generate_compressed_banded_matrix_rankupdate(
+            P_coeffs,
+            n,
+            m_total,
+            S_max,
+            r_target,
+        )
+    end
+
+    throw(ArgumentError("compressed tail method must be :clenshaw or :rankupdate"))
+end
+
+
+"""
+    assemble_VK_sparse_block_compressed_nofft(C, L_max, K_max; ...)
+
+Assemble the Chebyshev Volterra matrix with a compressed, non-FFT path.  The
+top dense rows propagate the compressed test functions directly.  By default the
+banded tail evaluates the Chebyshev coefficient vector with a no-FFT Clenshaw
+recurrence; `tail_method = :rankupdate` keeps the older compressed rank-update
+tail for diagnostics and benchmarking.
+"""
+function assemble_VK_sparse_block_compressed_nofft(
+    C::Matrix{Float64},
+    L_max::Int,
+    K_max::Int;
+    tol::Float64 = eps(Float64),
+    tail_half_bandwidth::Union{Nothing,Int} = nothing,
+    tail_method::Symbol = :clenshaw,
+)
+    n, m = size(C)
+
+    if L_max < 0 || K_max < 0
+        throw(ArgumentError("L_max and K_max must be nonnegative"))
+    end
+
+    Kp = K_max + 1
+    r_target = 2 * n + m - 1
+    n_top = min(n, L_max + 1)
+
+    r_full_upper = n + m - 1
+    r_full_lower = n
+    r_sym_requested = tail_half_bandwidth === nothing ? r_full_lower : tail_half_bandwidth
+
+    if r_sym_requested < 0
+        throw(ArgumentError("tail_half_bandwidth must be nonnegative"))
+    end
+
+    r_sym = min(r_sym_requested, L_max, K_max, r_target)
+
+    if r_sym_requested > r_full_upper
+        @warn "tail_half_bandwidth exceeds the full positive bandwidth; extra stored entries are structurally zero" r_sym_requested r_full_upper
+    end
+
+    q_needed = min(r_target, r_sym + n, K_max)
+
+    estimated_nnz =
+        n_top * (K_max + 1) +
+        max(0, L_max - n + 1) * (2 * r_sym + 1)
+
+    I = Int[]
+    J = Int[]
+    V = Float64[]
+
+    sizehint!(I, estimated_nnz)
+    sizehint!(J, estimated_nnz)
+    sizehint!(V, estimated_nnz)
+
+    P_coeffs = _build_postmult_coeffs(C)
+    H_zero = _precompute_H_zero_matrix(m, K_max)
+
+    top_vals = zeros(Float64, Kp, n_top)
+    band_vals = zeros(Float64, 2 * r_sym + 1, Kp)
+
+    # -------------------------------------------------------------------------
+    # 1. Top dense rows and the dense-offset contribution to the band tail.
+    #
+    # For each post-multiplication x-mode i, the t-direction coefficients define
+    # F_i(t).  The dense offset recurrence is applied once to F_i, not once for
+    # every individual T_j(t).
+    # The k = 0 column is handled here as well: all offsets s > 0 are zero, so
+    # the exact Chebyshev integral formula survives after the M[(1+x)/2]
+    # coefficient absorption.
+    # -------------------------------------------------------------------------
+    @inbounds for i in 0:n
+        coeffs = @view P_coeffs[i + 1, :]
+
+        if !_has_nonzero(coeffs)
+            continue
+        end
+
+        Hd = _generate_compressed_dense_top_rows(coeffs, H_zero, n, K_max)
+
+        for l in 0:(n_top - 1)
+            s1 = abs(l - i) + 1
+            s2 = l + i + 1
+            col_out = l + 1
+
+            @simd for k1 in 1:Kp
+                top_vals[k1, col_out] += Hd[k1, s1] + Hd[k1, s2]
+            end
+        end
+
+        for k in 0:K_max
+            for r in -r_sym:r_sym
+                l = k - r
+
+                if l < n || l > L_max
+                    continue
+                end
+
+                val = 0.0
+
+                s_plus = l + i
+                if s_plus < 2 * n
+                    val += Hd[k + 1, s_plus + 1]
+                end
+
+                s_minus = l - i
+                if s_minus < 2 * n
+                    val += Hd[k + 1, s_minus + 1]
+                end
+
+                band_vals[r + r_sym + 1, k + 1] += val
+            end
+        end
+    end
+
+    # -------------------------------------------------------------------------
+    # 2. Banded tail offsets s >= 2n.
+    #
+    # The compressed banded matrix is indexed as
+    #     compressed[i+1, q*num_rows + (s-2n+1)] = Hhat_i[s,q],
+    # where q = k-s.  Only q-values that can appear inside the emitted symmetric
+    # tail band are generated.
+    # -------------------------------------------------------------------------
+    compressed_banded = _generate_compressed_banded_matrix(
+        P_coeffs,
+        n,
+        m,
+        L_max,
+        q_needed;
+        method = tail_method,
+    )
+
+    num_band_rows = max(0, L_max - 2 * n + 1)
+
+    if num_band_rows > 0
+        @inbounds for i in 0:n
+            for k in 0:K_max
+                for r in -r_sym:r_sym
+                    l = k - r
+
+                    if l < n || l > L_max
+                        continue
+                    end
+
+                    val = 0.0
+
+                    s_plus = l + i
+                    if s_plus >= 2 * n && s_plus <= L_max
+                        q = k - s_plus
+
+                        if 0 <= q <= q_needed
+                            idx = q * num_band_rows + (s_plus - 2 * n + 1)
+                            val += compressed_banded[i + 1, idx]
+                        end
+                    end
+
+                    s_minus = l - i
+                    if s_minus >= 2 * n && s_minus <= L_max
+                        q = k - s_minus
+
+                        if 0 <= q <= q_needed
+                            idx = q * num_band_rows + (s_minus - 2 * n + 1)
+                            val += compressed_banded[i + 1, idx]
+                        end
+                    end
+
+                    band_vals[r + r_sym + 1, k + 1] += val
+                end
+            end
+        end
+    end
+
+    # Chebyshev constant mode weight for ell = 0.
+    if n_top > 0
+        @inbounds @simd for k1 in 1:Kp
+            top_vals[k1, 1] *= 0.5
+        end
+    end
+
+    @inbounds for k1 in 1:Kp
+        for l1 in 1:n_top
+            val = top_vals[k1, l1]
+
+            if abs(val) > tol
+                push!(I, l1)
+                push!(J, k1)
+                push!(V, val)
+            end
+        end
+    end
+
+    @inbounds for k in 0:K_max
+        for r in -r_sym:r_sym
+            l = k - r
+
+            if l < n || l > L_max
+                continue
+            end
+
+            val = band_vals[r + r_sym + 1, k + 1]
+
+            if abs(val) > tol
+                push!(I, l + 1)
+                push!(J, k + 1)
+                push!(V, val)
+            end
+        end
+    end
+
+    return sparse(I, J, V, L_max + 1, K_max + 1)
+end
+
+
+# =============================================================================
 # Top-level interfaces
 # =============================================================================
 
@@ -910,13 +1573,34 @@ end
 # Main constructor from analytic K.
 # -----------------------------------------------------------------------------
 
+@inline function _check_cheb_assembly(assembly::Symbol)
+    if assembly === :fft ||
+       assembly === :compressed ||
+       assembly === :compressed_nofft ||
+       assembly === :compressed_full ||
+       assembly === :compressed_rankupdate
+        return nothing
+    end
+
+    throw(ArgumentError("assembly must be :fft, :compressed, :compressed_nofft, :compressed_full, or :compressed_rankupdate"))
+end
+
+
+@inline function _compressed_tail_method(assembly::Symbol)
+    return assembly === :compressed_rankupdate ? :rankupdate : :clenshaw
+end
+
+
 function voltmat_cheb(
     K,
     N::Int;
+    assembly::Symbol = :fft,
     use_fft_top::Bool = true,
     tol::Float64 = eps(Float64),
     tail_half_bandwidth::Union{Nothing,Int} = nothing,
 )
+    _check_cheb_assembly(assembly)
+
     KK(x, y) = K(x, (1 + x) * (1 + y) / 2 - 1)
 
     C = adaptive_cheb2_coeffmat(KK)
@@ -927,36 +1611,47 @@ function voltmat_cheb(
     # Square output: only modes k = 0:N are assembled.
     K_MAX_TEST = N
 
-    h_dense_tensors = generate_dense_blocks(N_PARAM, M_TOTAL, K_MAX_TEST)
+    VK = if assembly === :fft
+        h_dense_tensors = generate_dense_blocks(N_PARAM, M_TOTAL, K_MAX_TEST)
 
-    # For square output, the largest possible s = k-q is at most N.
-    # The largest needed q is also smaller than the full rectangular value:
-    # q <= b_eff + n, because only r in [-b_eff,b_eff] is emitted.
-    r_target_full = 2 * N_PARAM + M_TOTAL - 1
-    b_req = tail_half_bandwidth === nothing ? N_PARAM : tail_half_bandwidth
-    if b_req < 0
-        throw(ArgumentError("tail_half_bandwidth must be nonnegative"))
+        # For square output, the largest possible s = k-q is at most N.
+        # The largest needed q is also smaller than the full rectangular value:
+        # q <= b_eff + n, because only r in [-b_eff,b_eff] is emitted.
+        r_target_full = 2 * N_PARAM + M_TOTAL - 1
+        b_req = tail_half_bandwidth === nothing ? N_PARAM : tail_half_bandwidth
+        if b_req < 0
+            throw(ArgumentError("tail_half_bandwidth must be nonnegative"))
+        end
+        b_eff = min(b_req, L_MAX_TEST, K_MAX_TEST, r_target_full)
+        q_needed_tail = min(r_target_full, b_eff + N_PARAM, K_MAX_TEST)
+
+        h_banded_tensors = _generate_banded_blocks_core(
+            N_PARAM,
+            M_TOTAL,
+            L_MAX_TEST,
+            q_needed_tail,
+        )
+
+        assemble_VK_sparse_block_fft_convolution(
+            C,
+            h_dense_tensors,
+            h_banded_tensors,
+            L_MAX_TEST,
+            K_MAX_TEST;
+            tol = tol,
+            use_fft_top = use_fft_top,
+            tail_half_bandwidth = tail_half_bandwidth,
+        )
+    else
+        assemble_VK_sparse_block_compressed_nofft(
+            C,
+            L_MAX_TEST,
+            K_MAX_TEST;
+            tol = tol,
+            tail_half_bandwidth = tail_half_bandwidth,
+            tail_method = _compressed_tail_method(assembly),
+        )
     end
-    b_eff = min(b_req, L_MAX_TEST, K_MAX_TEST, r_target_full)
-    q_needed_tail = min(r_target_full, b_eff + N_PARAM, K_MAX_TEST)
-
-    h_banded_tensors = _generate_banded_blocks_core(
-        N_PARAM,
-        M_TOTAL,
-        L_MAX_TEST,
-        q_needed_tail,
-    )
-
-    VK = assemble_VK_sparse_block_fft_convolution(
-        C,
-        h_dense_tensors,
-        h_banded_tensors,
-        L_MAX_TEST,
-        K_MAX_TEST;
-        tol = tol,
-        use_fft_top = use_fft_top,
-        tail_half_bandwidth = tail_half_bandwidth,
-    )
 
     return VK
 end
@@ -969,46 +1664,60 @@ end
 function voltmat_cheb(
     C::Matrix{Float64},
     N::Int;
+    assembly::Symbol = :fft,
     use_fft_top::Bool = true,
     tol::Float64 = eps(Float64),
     tail_half_bandwidth::Union{Nothing,Int} = nothing,
 )
+    _check_cheb_assembly(assembly)
+
     N_PARAM, M_TOTAL = size(C)
 
     L_MAX_TEST = N
     # Square output: only modes k = 0:N are assembled.
     K_MAX_TEST = N
 
-    h_dense_tensors = generate_dense_blocks(N_PARAM, M_TOTAL, K_MAX_TEST)
+    VK = if assembly === :fft
+        h_dense_tensors = generate_dense_blocks(N_PARAM, M_TOTAL, K_MAX_TEST)
 
-    # For square output, the largest possible s = k-q is at most N.
-    # The largest needed q is also smaller than the full rectangular value:
-    # q <= b_eff + n, because only r in [-b_eff,b_eff] is emitted.
-    r_target_full = 2 * N_PARAM + M_TOTAL - 1
-    b_req = tail_half_bandwidth === nothing ? N_PARAM : tail_half_bandwidth
-    if b_req < 0
-        throw(ArgumentError("tail_half_bandwidth must be nonnegative"))
+        # For square output, the largest possible s = k-q is at most N.
+        # The largest needed q is also smaller than the full rectangular value:
+        # q <= b_eff + n, because only r in [-b_eff,b_eff] is emitted.
+        r_target_full = 2 * N_PARAM + M_TOTAL - 1
+        b_req = tail_half_bandwidth === nothing ? N_PARAM : tail_half_bandwidth
+        if b_req < 0
+            throw(ArgumentError("tail_half_bandwidth must be nonnegative"))
+        end
+        b_eff = min(b_req, L_MAX_TEST, K_MAX_TEST, r_target_full)
+        q_needed_tail = min(r_target_full, b_eff + N_PARAM, K_MAX_TEST)
+
+        h_banded_tensors = _generate_banded_blocks_core(
+            N_PARAM,
+            M_TOTAL,
+            L_MAX_TEST,
+            q_needed_tail,
+        )
+
+        assemble_VK_sparse_block_fft_convolution(
+            C,
+            h_dense_tensors,
+            h_banded_tensors,
+            L_MAX_TEST,
+            K_MAX_TEST;
+            tol = tol,
+            use_fft_top = use_fft_top,
+            tail_half_bandwidth = tail_half_bandwidth,
+        )
+    else
+        assemble_VK_sparse_block_compressed_nofft(
+            C,
+            L_MAX_TEST,
+            K_MAX_TEST;
+            tol = tol,
+            tail_half_bandwidth = tail_half_bandwidth,
+            tail_method = _compressed_tail_method(assembly),
+        )
     end
-    b_eff = min(b_req, L_MAX_TEST, K_MAX_TEST, r_target_full)
-    q_needed_tail = min(r_target_full, b_eff + N_PARAM, K_MAX_TEST)
-
-    h_banded_tensors = _generate_banded_blocks_core(
-        N_PARAM,
-        M_TOTAL,
-        L_MAX_TEST,
-        q_needed_tail,
-    )
-
-    VK = assemble_VK_sparse_block_fft_convolution(
-        C,
-        h_dense_tensors,
-        h_banded_tensors,
-        L_MAX_TEST,
-        K_MAX_TEST;
-        tol = tol,
-        use_fft_top = use_fft_top,
-        tail_half_bandwidth = tail_half_bandwidth,
-    )
 
     return VK
 end

@@ -1,4 +1,4 @@
-module Voltmat_Jacobi
+module VoltMat_Jacobi
 
 using LinearAlgebra
 using SparseArrays
@@ -13,7 +13,7 @@ export voltmat_jacobi,
        voltmat_jacobi_full
 
 # =============================================================================
-# Voltmat_Jacobi -- top-dense/band-tail Jacobi Volterra matrix constructor
+# VoltMat_Jacobi -- top-dense/band-tail Jacobi Volterra matrix constructor
 #
 # General Jacobi-basis Volterra matrix constructor.
 #
@@ -1989,4 +1989,4 @@ function voltmat_jacobi_full(
 end
 
 
-end # module Voltmat_Jacobi
+end # module VoltMat_Jacobi
