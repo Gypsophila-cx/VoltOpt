@@ -43,13 +43,13 @@ using VoltOpt
 
 ### Smooth Volterra operators
 
-For a smooth kernel $K(x,t)$, the package constructs coefficient-space matrices for Volterra integral operators of the form
+For a smooth kernel K(x,t), the package constructs coefficient-space matrices for Volterra integral operators of the form
 
-$$
+```math
 (\mathcal{V}_K u)(x)
 =
 \int_{-1}^{x} K(x,t)u(t)\,dt .
-$$
+```
 
 If
 
@@ -57,7 +57,7 @@ If
 u(x) \approx \sum_{k=0}^{N} u_k \phi_k(x),
 ```
 
-then the constructed matrix (V) satisfies
+then the constructed matrix V satisfies
 
 ```math
 \mathcal{V}_K u
@@ -75,17 +75,7 @@ B_leg  = voltmat_leg(K, 32)
 R      = restmat_cheb(-1.0, 0.0, 32)
 ```
 
-Here `voltmat_cheb` constructs the matrix of (\mathcal{V}_K) in the Chebyshev basis
-
-```math
-\phi_k(x)=T_k(x),
-```
-
-while `voltmat_leg` constructs the corresponding matrix in the Legendre basis
-
-```math
-\phi_k(x)=P_k(x).
-```
+Here `voltmat_cheb` constructs the matrix of V_K in the Chebyshev basis, while `voltmat_leg` constructs the corresponding matrix in the Legendre basis. 
 
 The restriction matrix `restmat_cheb(a,b,N)` represents the affine restriction
 
@@ -100,7 +90,7 @@ in Chebyshev coefficients. For example,
 R = restmat_cheb(-1.0, 0.0, 32)
 ```
 
-constructs the coefficient-space restriction from ([-1,1]) to the subinterval ([-1,0]).
+constructs the coefficient-space restriction from [-1,1] to the subinterval [-1,0].
 
 ### Weakly singular Volterra operators
 
@@ -114,7 +104,7 @@ The package also supports weakly singular Volterra operators of the form
 \qquad 0 \le \mu < 1,
 ```
 
-where (K(x,y)) is smooth and the singular factor is explicitly separated as ((x-y)^{-\mu}).
+where K(x,y) is smooth and the singular factor is explicitly separated as (x-y)^{-\mu}.
 
 The weakly singular constructor uses a mapped Chebyshev/JFP-type basis
 
@@ -134,7 +124,7 @@ u(x)\approx
 \sum_{k=0}^{N} u_k Q_k^{\sigma,\beta}(x),
 ```
 
-then `weak_voltmat_cheb` constructs a matrix (V) such that
+then `weak_voltmat_cheb` constructs a matrix V such that
 
 ```math
 \mathcal{V}_K^\mu u
@@ -239,24 +229,7 @@ Mathematically, these constructors correspond to the same Volterra operator
 \int_{-1}^{x}K(x,y)u(y)\,dy,
 ```
 
-but represented in different coefficient bases:
-
-```math
-u(x)=\sum_{k=0}^{N}u_k T_k(x)
-\quad\text{for Chebyshev},
-```
-
-```math
-u(x)=\sum_{k=0}^{N}u_k P_k(x)
-\quad\text{for Legendre},
-```
-
-and more generally
-
-```math
-u(x)=\sum_{k=0}^{N}u_k P_k^{(\alpha,\beta)}(x)
-\quad\text{for Jacobi}.
-```
+but represented in different coefficient bases.
 
 The weakly singular version instead represents
 
@@ -266,7 +239,7 @@ The weakly singular version instead represents
 \int_{-1}^{x}(x-y)^{-\mu}K(x,y)u(y)\,dy
 ```
 
-in the mapped weighted Chebyshev basis (Q_n^{\sigma,\beta}).
+in the mapped weighted Chebyshev basis Q_n^{\sigma,\beta}.
 
 ### Nonlinear Volterra actions
 
@@ -278,7 +251,7 @@ For nonlinear Volterra integral actions, the package provides a fast evaluator t
 \int_{-1}^{x} K(x,t,u(t))\,dt,
 ```
 
-where the kernel depends nonlinearly on the unknown function value (u(t)).
+where the kernel depends nonlinearly on the unknown function value u(t).
 
 For example:
 
@@ -308,7 +281,7 @@ This corresponds to the nonlinear Volterra action
 \,dt.
 ```
 
-Here `cu` stores the Chebyshev coefficients of (u), and `Vu` returns the Chebyshev coefficients of (\mathcal{N}u).
+Here `cu` stores the Chebyshev coefficients of u, and `Vu` returns the Chebyshev coefficients of N(u).
 
 
 ## Examples
@@ -335,7 +308,7 @@ exact solutions.
 | Solution | Error convergence |
 |:---:|:---:|
 | <img src="examples/figures/ex1_aging_maxwell_solution.png" width="100%" /> | <img src="examples/figures/ex1_aging_maxwell_error_vs_N.png" width="100%" /> |
-| The numerical solution matches the manufactured exact solution. | The error decreases as the truncation dimension \(N\) increases. |
+| The numerical solution matches the manufactured exact solution. | The error decreases as the truncation dimension N increases. |
 
 | Coefficients | Right-hand side |
 |:---:|:---:|
@@ -377,7 +350,7 @@ The script also checks matrix structure and writes a sparsity plot for the
 | Matrix sparsity | BigFloat RHS big-truth error |
 |:---:|:---:|
 | <img src="examples/figures/ex3_pantograph_cheb_A100_spy.png" width="60%" /> | <img src="examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png" width="100%" /> |
-| The sparsity plot shows the assembled \(N=100\) coupled system. | The curve compares the high-precision solution against the big-truth reference. |
+| The sparsity plot shows the assembled N=100 coupled system. | The curve compares the high-precision solution against the big-truth reference. |
 
 ### Example 4. Singularly perturbed Volterra integro-differential equation
 
@@ -440,7 +413,7 @@ solution comparison.
 | Solution | Error convergence |
 |:---:|:---:|
 | <img src="examples/figures/ex7_weak_singular_rational_kernel_solution.png" width="100%" /> | <img src="examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.png" width="100%" /> |
-| The numerical solution is compared with the exact weakly singular solution. | The maximum error is shown as the truncation dimension \(N\) increases. |
+| The numerical solution is compared with the exact weakly singular solution. | The maximum error is shown as the truncation dimension N increases. |
 
 ## Benchmark Figures
 
@@ -453,14 +426,14 @@ fixed-`N`/varying-bandwidth, and weakly singular `weak_voltmat_cheb` timings.
 | Runtime vs \(N\) | Runtime vs kernel size |
 |:---:|:---:|
 | <img src="test/figures/bench_fixedC_varyN_time.png" width="100%" /> | <img src="test/figures/bench_fixedN_varyC_time.png" width="100%" /> |
-| Assembly time is shown as the matrix dimension \(N\) increases. | Assembly time is shown as the kernel expansion size increases. |
+| Assembly time is shown as the matrix dimension N increases. | Assembly time is shown as the kernel expansion size increases. |
 
 ### Weakly singular assembly timings
 
-| Runtime vs \(N\) | Runtime vs kernel size |
+| Runtime vs N | Runtime vs n |
 |:---:|:---:|
 | <img src="test/figures/bench_weak_fixedC_varyN_time.png" width="100%" /> | <img src="test/figures/bench_weak_fixedN_varyC_time.png" width="100%" /> |
-| Weak-kernel assembly time is shown as the matrix dimension \(N\) increases. | Weak-kernel assembly time is shown as the bandwidth or coefficient size increases. |
+| Weak-kernel assembly time is shown as the matrix dimension N increases. | Weak-kernel assembly time is shown as the bandwidth n increases. |
 
 ## Reproducing the Examples
 
