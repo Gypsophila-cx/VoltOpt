@@ -43,13 +43,13 @@ using VoltOpt
 
 ### Smooth Volterra operators
 
-For a smooth kernel (K(x,t)), the package constructs coefficient-space matrices for Volterra integral operators of the form
+For a smooth kernel $K(x,t)$, the package constructs coefficient-space matrices for Volterra integral operators of the form
 
-```math
+$$
 (\mathcal{V}_K u)(x)
 =
 \int_{-1}^{x} K(x,t)u(t)\,dt .
-```
+$$
 
 If
 
