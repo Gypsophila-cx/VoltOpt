@@ -23,6 +23,13 @@ const M_eval = 4001
 
 const RUN_DIRECT_BASELINE = get(ENV, "RUN_DIRECT_BASELINE", "0") == "1"
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 function _candidate_compvolt_paths(root::AbstractString)
     return (
         joinpath(root, "src", "compVolt.jl"),
@@ -271,7 +278,7 @@ function main()
         title="Nonlinear Volterra solution, α=100, λ=1, N=1024",
     )
     plot!(sol_plot, x_eval, u_exact_eval; linestyle=:dash, label="exact")
-    savefig(sol_plot, solution_fig)
+    solution_png = savefig_pdf_png(sol_plot, solution_fig)
 
     iters = [h.iter for h in history]
     eqerrs = max.([h.eqgrid_err for h in history], tol)
@@ -290,7 +297,7 @@ function main()
         title=@sprintf("Picard error decay, final iter=%d, final err=%.3e", final_iter, final_eqgrid_err),
     )
     plot!(err_plot, iters, update_errs; linestyle=:dot, marker=:diamond, label="Picard update")
-    savefig(err_plot, error_fig)
+    error_png = savefig_pdf_png(err_plot, error_fig)
 
     write_history_csv(history_csv, history)
 
@@ -311,7 +318,9 @@ function main()
     @printf("total Picard time         = %.6f sec\n", total_picard_time)
     @printf("total runtime             = %.6f sec\n", total_runtime)
     @printf("solution figure           = %s\n", relprint(solution_fig))
+    @printf("solution png              = %s\n", relprint(solution_png))
     @printf("error figure              = %s\n", relprint(error_fig))
+    @printf("error png                 = %s\n", relprint(error_png))
     @printf("history csv               = %s\n", relprint(history_csv))
     println("============================================================")
 end

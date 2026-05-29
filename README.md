@@ -102,8 +102,8 @@ Vu = compVolt_nonlinear_fast(Knl, cu; grid=grid, truncate_output=true)
 ## Examples
 
 This project currently provides seven example studies.  The scripts write their
-main numerical outputs to `examples/figures`; the links below point to the
-checked-in PDF results.
+main numerical outputs to `examples/figures`; the previews below use checked-in
+PNG files for GitHub rendering, with PDF links kept for high-quality output.
 
 ### Example 1. Aging Maxwell second-kind Volterra equation
 
@@ -122,10 +122,21 @@ exact solutions.
 
 Figures:
 
-- [Solution vs exact](examples/figures/ex1_aging_maxwell_solution.pdf)
-- [Error vs N](examples/figures/ex1_aging_maxwell_error_vs_N.pdf)
-- [Coefficient magnitudes](examples/figures/ex1_aging_maxwell_coefficients.pdf)
-- [Right-hand side](examples/figures/ex1_aging_maxwell_rhs.pdf)
+![Solution vs exact](examples/figures/ex1_aging_maxwell_solution.png)
+
+[PDF version](examples/figures/ex1_aging_maxwell_solution.pdf)
+
+![Error vs N](examples/figures/ex1_aging_maxwell_error_vs_N.png)
+
+[PDF version](examples/figures/ex1_aging_maxwell_error_vs_N.pdf)
+
+![Coefficient magnitudes](examples/figures/ex1_aging_maxwell_coefficients.png)
+
+[PDF version](examples/figures/ex1_aging_maxwell_coefficients.pdf)
+
+![Right-hand side](examples/figures/ex1_aging_maxwell_rhs.png)
+
+[PDF version](examples/figures/ex1_aging_maxwell_rhs.pdf)
 
 ### Example 2. First-kind Volterra equation: direct vs differentiated
 
@@ -147,8 +158,13 @@ for both approaches.
 
 Figures:
 
-- [Kernel K1 comparison](examples/figures/ex2_compare_K1_direct_vs_differentiated.pdf)
-- [Kernel K2 comparison](examples/figures/ex2_compare_K2_direct_vs_differentiated.pdf)
+![Kernel K1 comparison](examples/figures/ex2_compare_K1_direct_vs_differentiated.png)
+
+[PDF version](examples/figures/ex2_compare_K1_direct_vs_differentiated.pdf)
+
+![Kernel K2 comparison](examples/figures/ex2_compare_K2_direct_vs_differentiated.png)
+
+[PDF version](examples/figures/ex2_compare_K2_direct_vs_differentiated.pdf)
 
 ### Example 3. Pantograph first-kind Volterra equation
 
@@ -161,11 +177,25 @@ The script also checks matrix structure and writes a sparsity plot for the
 
 Figures:
 
-- [BigFloat RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.pdf)
-- [BigFloat RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf)
-- [Float64 RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.pdf)
-- [Float64 RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf)
-- [Matrix sparsity at N=100](examples/figures/ex3_pantograph_cheb_A100_spy.pdf)
+![BigFloat RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.png)
+
+[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs.pdf)
+
+![BigFloat RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png)
+
+[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf)
+
+![Float64 RHS error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.png)
+
+[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs.pdf)
+
+![Float64 RHS big-truth error curve](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.png)
+
+[PDF version](examples/figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf)
+
+![Matrix sparsity at N=100](examples/figures/ex3_pantograph_cheb_A100_spy.png)
+
+[PDF version](examples/figures/ex3_pantograph_cheb_A100_spy.pdf)
 
 ### Example 4. Singularly perturbed Volterra integro-differential equation
 
@@ -177,9 +207,17 @@ Volterra term, and reports true and Cauchy-type errors as `N` grows.
 
 Figures:
 
-- [Solution vs exact](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.pdf)
-- [True error vs N](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.pdf)
-- [Cauchy coefficient error](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.pdf)
+![Solution vs exact](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.png)
+
+[PDF version](examples/figures/ex4_SPVIDE_solution_eps1eminus07_muminus1.pdf)
+
+![True error vs N](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.png)
+
+[PDF version](examples/figures/ex4_SPVIDE_error_eps1eminus07_muminus1.pdf)
+
+![Cauchy coefficient error](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.png)
+
+[PDF version](examples/figures/ex4_SPVIDE_cauchy_eps1eminus07_muminus1.pdf)
 
 ### Example 5. Legendre Volterra pseudospectrum
 
@@ -190,7 +228,9 @@ triangular factor, and computes a shifted-SVD pseudospectrum grid.
 
 Figure:
 
-- [Bessel-J1 Volterra pseudospectrum](examples/figures/ex5_volterra_schur_besselj1.pdf)
+![Bessel-J1 Volterra pseudospectrum](examples/figures/ex5_volterra_schur_besselj1.png)
+
+[PDF version](examples/figures/ex5_volterra_schur_besselj1.pdf)
 
 ### Example 6. Nonlinear Volterra-Urysohn Picard iteration
 
@@ -207,8 +247,13 @@ iteration-history plot shows error and update decay.
 
 Figures:
 
-- [Solution vs exact](examples/figures/ex6_solution_lambertW_picard_N1024.pdf)
-- [Picard error decay](examples/figures/ex6_picard_error_decay_N1024.pdf)
+![Solution vs exact](examples/figures/ex6_solution_lambertW_picard_N1024.png)
+
+[PDF version](examples/figures/ex6_solution_lambertW_picard_N1024.pdf)
+
+![Picard error decay](examples/figures/ex6_picard_error_decay_N1024.png)
+
+[PDF version](examples/figures/ex6_picard_error_decay_N1024.pdf)
 
 ### Example 7. Weakly singular rational-kernel Volterra equation
 
@@ -226,8 +271,13 @@ solution comparison.
 
 Figures:
 
-- [Solution vs exact](examples/figures/ex7_weak_singular_rational_kernel_solution.pdf)
-- [Error vs N](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.pdf)
+![Solution vs exact](examples/figures/ex7_weak_singular_rational_kernel_solution.png)
+
+[PDF version](examples/figures/ex7_weak_singular_rational_kernel_solution.pdf)
+
+![Error vs N](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.png)
+
+[PDF version](examples/figures/ex7_weak_singular_rational_kernel_error_vs_N.pdf)
 
 ## Benchmark Figures
 
@@ -235,10 +285,29 @@ The following timing figures summarize matrix-construction behavior from the
 benchmark scripts in `test/`.  They include fixed-kernel-complexity/varying-`N`,
 fixed-`N`/varying-bandwidth, and weakly singular `weak_voltmat_cheb` timings.
 
-- [Chebyshev/Jacobi, fixed C and varying N](test/figures/bench_fixedC_varyN_time.pdf)
-- [Chebyshev/Jacobi, fixed N and varying C](test/figures/bench_fixedN_varyC_time.pdf)
-- [Weak Chebyshev/JFP, fixed C and varying N](test/figures/bench_weak_fixedC_varyN_time.pdf)
-- [Weak Chebyshev/JFP, fixed N and varying C](test/figures/bench_weak_fixedN_varyC_time.pdf)
+### Runtime with fixed kernel complexity and varying N
+
+![Chebyshev/Jacobi, fixed C and varying N](test/figures/bench_fixedC_varyN_time.png)
+
+[PDF version](test/figures/bench_fixedC_varyN_time.pdf)
+
+### Runtime with fixed N and varying bandwidth
+
+![Chebyshev/Jacobi, fixed N and varying C](test/figures/bench_fixedN_varyC_time.png)
+
+[PDF version](test/figures/bench_fixedN_varyC_time.pdf)
+
+### Weak runtime with fixed kernel complexity and varying N
+
+![Weak Chebyshev/JFP, fixed C and varying N](test/figures/bench_weak_fixedC_varyN_time.png)
+
+[PDF version](test/figures/bench_weak_fixedC_varyN_time.pdf)
+
+### Weak runtime with fixed N and varying bandwidth
+
+![Weak Chebyshev/JFP, fixed N and varying C](test/figures/bench_weak_fixedN_varyC_time.png)
+
+[PDF version](test/figures/bench_weak_fixedN_varyC_time.pdf)
 
 ## Reproducing the Examples
 
@@ -271,7 +340,7 @@ depending on the machine.
 ## Reproducing the Benchmarks
 
 Benchmark data are written to `test/data`, and the plotting scripts write PDFs
-to `test/figures`:
+and PNGs to `test/figures`:
 
 ```powershell
 julia --project=. test/bench_fixedC_varyN.jl
@@ -297,7 +366,7 @@ src/RestMat/                 restriction matrices
 src/cheb*.jl, src/vals2cheb.jl
                               Chebyshev transform and helper routines
 examples/                    reproducible numerical examples
-examples/figures             generated CSV/PDF outputs
+examples/figures             generated CSV/PDF/PNG outputs
 test/                        benchmark scripts
 test/data                    benchmark CSV outputs
 test/figures                 benchmark timing figures

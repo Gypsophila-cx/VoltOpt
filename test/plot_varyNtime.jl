@@ -110,6 +110,7 @@ end
 function plot_fixedC_varyN_time(
     csvfile::AbstractString;
     output_pdf::String = joinpath(fig_dir, "bench_fixedC_varyN_time.pdf"),
+    output_png::String = replace(output_pdf, r"\.pdf$" => ".png"),
     use_median::Bool = false,
     add_reference_lines::Bool = true,
 )
@@ -185,6 +186,8 @@ function plot_fixedC_varyN_time(
 
     savefig(plt, output_pdf)
     println("PDF saved to: ", output_pdf)
+    savefig(plt, output_png)
+    println("PNG saved to: ", output_png)
 
     return plt
 end

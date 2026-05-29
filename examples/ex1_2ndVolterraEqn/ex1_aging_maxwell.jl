@@ -24,6 +24,13 @@ const VOLTERRA_ROOT = find_project_root()
 const SRC_DIR = joinpath(VOLTERRA_ROOT, "src")
 const FIGURES_DIR = joinpath(VOLTERRA_ROOT, "examples", "figures")
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 # Optional fast solver.
 # If FastAlmostBandedMatrices.jl is unavailable, the script falls back to sparse LU.
 const HAS_FAST_AB = Ref(false)
@@ -795,7 +802,7 @@ plot!(
     color = :gray,
 )
 
-savefig(p_coef, joinpath(figdir, "ex1_aging_maxwell_coefficients.pdf"))
+savefig_pdf_png(p_coef, joinpath(figdir, "ex1_aging_maxwell_coefficients.pdf"))
 
 # ------------------------------------------------------------
 # 8.2 Numerical solution plot
@@ -830,7 +837,7 @@ plot!(
     color = :gray,
 )
 
-savefig(p_sol, joinpath(figdir, "ex1_aging_maxwell_solution.pdf"))
+savefig_pdf_png(p_sol, joinpath(figdir, "ex1_aging_maxwell_solution.pdf"))
 
 # ------------------------------------------------------------
 # 8.3 RHS plot
@@ -853,7 +860,7 @@ p_rhs = plot(
     color = :black,
 )
 
-savefig(p_rhs, joinpath(figdir, "ex1_aging_maxwell_rhs.pdf"))
+savefig_pdf_png(p_rhs, joinpath(figdir, "ex1_aging_maxwell_rhs.pdf"))
 
 # ------------------------------------------------------------
 # 8.4 Error vs N
@@ -898,7 +905,7 @@ plot!(
     color = :gray,
 )
 
-savefig(p_err, joinpath(figdir, "ex1_aging_maxwell_error_vs_N.pdf"))
+savefig_pdf_png(p_err, joinpath(figdir, "ex1_aging_maxwell_error_vs_N.pdf"))
 
 # ============================================================
 # 9. Print summary table
@@ -932,4 +939,5 @@ println("  1. ex1_aging_maxwell_coefficients.pdf")
 println("  2. ex1_aging_maxwell_solution.pdf")
 println("  3. ex1_aging_maxwell_rhs.pdf")
 println("  4. ex1_aging_maxwell_error_vs_N.pdf")
-println("  5. ex1_aging_maxwell_summary_table.csv")
+println("  5. matching .png files for the figures above")
+println("  6. ex1_aging_maxwell_summary_table.csv")

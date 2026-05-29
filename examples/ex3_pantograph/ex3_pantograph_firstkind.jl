@@ -56,6 +56,13 @@ catch err
     )
 end
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 include(joinpath(SRC_DIR, "RestMat", "restmat_cheb.jl"))
 include(joinpath(SRC_DIR, "VoltMat", "voltmat_cheb.jl"))
 using .VoltMat_Cheb
@@ -1317,7 +1324,7 @@ function write_error_plot(path, Ns_vec, errors)
         legend = false,
     )
 
-    savefig(p, path)
+    savefig_pdf_png(p, path)
 
     return path
 end
@@ -1359,7 +1366,7 @@ function write_bigtruth_error_plot(path, Ns_vec, errors)
         legend = false,
     )
 
-    savefig(p, path)
+    savefig_pdf_png(p, path)
 
     return path
 end
@@ -1408,7 +1415,7 @@ function write_A_spy_plot(path, A)
         grid = false,
     )
 
-    savefig(p, path)
+    savefig_pdf_png(p, path)
 
     @printf(
         "A100 spy plot stored nonzero entries: %d, row range = %d:%d, col range = %d:%d\n",

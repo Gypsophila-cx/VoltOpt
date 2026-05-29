@@ -92,6 +92,7 @@ end
 function plot_weak_fixedC_varyN_time(
     csvfile::AbstractString;
     output_pdf::String = joinpath(fig_dir, "bench_weak_fixedC_varyN_time.pdf"),
+    output_png::String = replace(output_pdf, r"\.pdf$" => ".png"),
     add_reference_line::Bool = true,
 )
     N, t_build = read_weak_fixedC_varyN_data(csvfile)
@@ -138,6 +139,8 @@ function plot_weak_fixedC_varyN_time(
 
     savefig(plt, output_pdf)
     println("PDF saved to: ", output_pdf)
+    savefig(plt, output_png)
+    println("PNG saved to: ", output_png)
 
     return plt
 end

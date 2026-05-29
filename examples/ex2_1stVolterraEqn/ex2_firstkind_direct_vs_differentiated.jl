@@ -26,6 +26,13 @@ const VOLTERRA_ROOT = find_project_root()
 const SRC_DIR = joinpath(VOLTERRA_ROOT, "src")
 const FIGURES_DIR = joinpath(VOLTERRA_ROOT, "examples", "figures")
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 include(joinpath(SRC_DIR, "VoltMat", "voltmat_cheb.jl"))
 using .VoltMat_Cheb
 
@@ -327,8 +334,9 @@ function plot_compare_for_one_kernel(case;
     outfile = joinpath(outdir, "ex2_compare_$(case.name)_direct_vs_differentiated.pdf")
     csvfile = joinpath(outdir, "ex2_compare_$(case.name)_direct_vs_differentiated.csv")
     write_compare_csv(csvfile, Ns, direct_errs, diff_errs)
-    savefig(plt, outfile)
+    pngfile = savefig_pdf_png(plt, outfile)
     println("Saved: ", outfile)
+    println("Saved: ", pngfile)
     println("Saved: ", csvfile)
 
     return (
@@ -336,6 +344,7 @@ function plot_compare_for_one_kernel(case;
         direct_errs = direct_errs,
         diff_errs = diff_errs,
         outfile = outfile,
+        pngfile = pngfile,
         csvfile = csvfile,
     )
 end

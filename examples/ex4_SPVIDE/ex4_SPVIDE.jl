@@ -42,6 +42,13 @@ const VOLTERRA_ROOT = find_project_root()
 const SRC_DIR = joinpath(VOLTERRA_ROOT, "src")
 const FIGURES_DIR = joinpath(VOLTERRA_ROOT, "examples", "figures")
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 include(joinpath(SRC_DIR, "VoltMat", "voltmat_cheb.jl"))
 using .VoltMat_Cheb
 
@@ -608,7 +615,7 @@ function plot_solution_default(
         label="exact",
     )
 
-    savefig(p, filename)
+    savefig_pdf_png(p, filename)
     return p
 end
 
@@ -670,7 +677,7 @@ function plot_true_error_default(
         color = :black,
     )
 
-    savefig(p, filename)
+    savefig_pdf_png(p, filename)
     return p
 end
 
@@ -707,7 +714,7 @@ function plot_cauchy_error_default(
         color=:black,
     )
 
-    savefig(p, filename)
+    savefig_pdf_png(p, filename)
     return p
 end
 

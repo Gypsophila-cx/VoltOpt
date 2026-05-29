@@ -22,6 +22,13 @@ const DATA_DIR = joinpath(PROJECT_ROOT, "examples", "data")
 mkpath(FIGURES_DIR)
 mkpath(DATA_DIR)
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 include(joinpath(PROJECT_ROOT, "src", "VoltOpt.jl"))
 using .VoltOpt
 
@@ -482,7 +489,7 @@ function main()
         size = (760, 460),
     )
     plot!(p_solution, xplot, u_ex; label = "exact", linewidth = 2.0, linestyle = :dash)
-    savefig(p_solution, solution_pdf)
+    solution_png = savefig_pdf_png(p_solution, solution_pdf)
 
     Ns_vec = [r.N for r in rows]
     errs = [r.err_inf for r in rows]
@@ -504,13 +511,15 @@ function main()
         grid = true,
         size = (760, 460),
     )
-    savefig(p_error, error_pdf)
+    error_png = savefig_pdf_png(p_error, error_pdf)
 
     write_error_csv(csv_path, rows)
 
     println("Saved:")
     println(solution_pdf)
+    println(solution_png)
     println(error_pdf)
+    println(error_png)
     println(csv_path)
     println("============================================================")
 end

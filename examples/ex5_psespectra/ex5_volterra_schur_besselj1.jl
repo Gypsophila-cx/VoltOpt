@@ -40,6 +40,13 @@ const ay = (-0.72, 0.34)
 const csv_path = joinpath(FIGURES_DIR, "ex5_volterra_schur_besselj1_pseudospectrum.csv")
 const pdf_path = joinpath(FIGURES_DIR, "ex5_volterra_schur_besselj1.pdf")
 
+function savefig_pdf_png(fig, pdf_path::AbstractString)
+    png_path = replace(pdf_path, r"\.pdf$" => ".png")
+    savefig(fig, pdf_path)
+    savefig(fig, png_path)
+    return png_path
+end
+
 kernel(x::Real, y::Real) = -im * besselj(1, 2 * (x - y) + x * y)
 
 kernel_real(x::Real, y::Real) = real(kernel(x, y))
@@ -157,7 +164,7 @@ function plot_pdf(path, ptx, pty, logpse)
 
     plot_layout = @layout [a{0.95w} b{0.02w}]
     plt = plot(p_main, p_bar; layout = plot_layout, size = (720, 480))
-    savefig(plt, path)
+    savefig_pdf_png(plt, path)
 
     return plt
 end
@@ -202,7 +209,7 @@ logpse = log10.(pse)
 println("writing CSV data")
 csv_time = @elapsed write_pseudospectrum_csv(csv_path, ptx, pty, pse, logpse)
 
-println("writing PDF figure")
+println("writing PDF/PNG figure")
 plot_time = @elapsed plot_pdf(pdf_path, ptx, pty, logpse)
 
 println("interp time (s): ", interp_time)
@@ -216,3 +223,4 @@ println("Khat coefficient size: ", size(C_Khat))
 println("normalization scale: ", norm_scale)
 println("saved CSV: ", csv_path)
 println("saved PDF: ", pdf_path)
+println("saved PNG: ", replace(pdf_path, r"\.pdf$" => ".png"))

@@ -92,6 +92,7 @@ end
 function plot_weak_fixedN_varyC_time(
     csvfile::AbstractString;
     output_pdf::String = joinpath(fig_dir, "bench_weak_fixedN_varyC_time.pdf"),
+    output_png::String = replace(output_pdf, r"\.pdf$" => ".png"),
 )
     x, t_build, x_col = read_weak_fixedN_varyC_data(csvfile)
     xlabel_text = x_col == "bandwidth" ? "lower bandwidth n" :
@@ -142,6 +143,8 @@ function plot_weak_fixedN_varyC_time(
 
     savefig(plt, output_pdf)
     println("PDF saved to: ", output_pdf)
+    savefig(plt, output_png)
+    println("PNG saved to: ", output_png)
 
     return plt
 end
