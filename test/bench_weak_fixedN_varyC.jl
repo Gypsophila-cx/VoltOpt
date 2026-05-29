@@ -167,6 +167,7 @@ function bench_weak_fixedN_varyC(;
     println("Benchmark: weakly singular Chebyshev/JFP Volterra matrix")
     println("case                    = fixed N, varying C/bandwidth")
     println("kernel                  = exp(-x*y)")
+    println("weak kernel factor      = (x-y)^(-mu)")
     println("N                       = $N")
     println("C sizes                 = $C_sizes")
     println("mu, sigma, beta         = ($mu, $sigma, $beta)")

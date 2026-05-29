@@ -38,8 +38,8 @@ const WeakCheb = VoltOpt.Weak_VoltMat_Cheb
 # Problem data
 # ============================================================
 
-const MU = -0.5
-const BETA = MU + 1.0
+const MU = 0.5
+const BETA = 1.0 - MU
 const SIGMA = 0.0
 const LAMBDA = 0.5
 const KERNEL_I = 60
@@ -170,6 +170,7 @@ function volterra_exact_big(x::BigFloat, stats::TanhSinhStats)
     xp1 = x + one(BigFloat)
     xp1 == 0 && return zero(BigFloat)
 
+    # Public convention: the weak kernel factor is (x-y)^(-MU).
     integral = tanh_sinh_integrate_01_big(stats = stats) do xi
         y = -one(BigFloat) + xp1 * xi
         return inv(sqrt(one(BigFloat) - xi)) * kernel_big(x, y) * u_exact_big(y)
@@ -395,6 +396,7 @@ function main()
     println("Example 7: weakly singular Volterra equation")
     @printf("mu     = %.16g\n", MU)
     @printf("beta   = %.16g\n", BETA)
+    println("kernel factor = (x-y)^(-mu)")
     @printf("lambda = %.16g\n", LAMBDA)
     println("exact solution:")
     println("u_*(x) = 1 - lambda/2*(x+1)^(1/2) + lambda^2*pi/16*(x+1)")

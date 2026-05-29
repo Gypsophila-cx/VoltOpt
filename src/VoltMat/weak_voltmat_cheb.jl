@@ -169,21 +169,22 @@ function A0_table(q::AbstractVector, Kmax::Int)
     return A0
 end
 
-function _residual_factor_general(q::AbstractVector, mu::Float64, sigma::Float64, beta::Float64)
+function _residual_factor_general(q::AbstractVector, mu_sing::Float64, sigma::Float64, beta::Float64)
     gamma = (sigma + 1.0) / beta - 1.0
-    mu > -1.0 || throw(ArgumentError("mu must be greater than -1"))
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     sigma > -1.0 || throw(ArgumentError("sigma must be greater than -1"))
     beta > 0.0 || throw(ArgumentError("beta must be positive"))
     gamma > -1.0 || throw(ArgumentError("gamma=(sigma+1)/beta-1 must be greater than -1"))
 
     R = similar(q, Float64)
-    scale = 2.0^(mu + sigma) / beta
+    a_left = -mu_sing
+    scale = 2.0^(sigma - mu_sing) / beta
 
     @inbounds for n in eachindex(q)
         qv = q[n]
         s = (1.0 + qv) / 2.0
-        original = scale * (1.0 - s^(1.0 / beta))^mu * s^gamma
-        extracted = (1.0 - qv)^mu * (1.0 + qv)^gamma
+        original = scale * (1.0 - s^(1.0 / beta))^(-mu_sing) * s^gamma
+        extracted = (1.0 - qv)^a_left * (1.0 + qv)^gamma
         R[n] = original / extracted
     end
 
@@ -256,23 +257,23 @@ function _tanh_sinh_S_for_qeps(epsq::Float64)
     return asinh((1.0 / pi) * log(1.0 / epsq - 1.0))
 end
 
-function _S_beta_stable(q::Float64, beta_map::Float64, mu_pos::Float64)
+function _S_beta_stable(q::Float64, beta_map::Float64, mu_sing::Float64)
     beta_map == 1.0 && return 1.0
     q <= 0.0 && return 1.0
-    q >= 1.0 && return beta_map^mu_pos
+    q >= 1.0 && return beta_map^mu_sing
 
     if q > 1.0 - 1e-12
-        return beta_map^mu_pos
+        return beta_map^mu_sing
     end
 
     qp = q^(1.0 / beta_map)
     if qp >= 1.0
-        return beta_map^mu_pos
+        return beta_map^mu_sing
     end
 
     log_num = log1p(-q)
     log_den = log1p(-qp)
-    return exp(mu_pos * (log_num - log_den))
+    return exp(mu_sing * (log_num - log_den))
 end
 
 """
@@ -281,9 +282,9 @@ end
 
 Compute the initial weak-singular moment row `H_{0,0,k}`,
 `k=0,...,Kmax`, by DE/tanh-sinh quadrature after the `q=z^beta`
-change of variables.  Here `mu` is the positive endpoint exponent in
-`(1-z)^(-mu)`, so callers using the Volterra weak exponent should pass
-`-mu_volterra`.
+change of variables.  Here `mu` is the endpoint singularity strength in
+`(1-z)^(-mu)`.  Under the public Volterra convention it is the same `mu`
+as in `(x-y)^(-mu)`.
 """
 function compute_H00k_DE(alpha::Real, mu::Real, beta_map::Real, Kmax::Int;
                          qfactor::Int = 12,
@@ -293,25 +294,25 @@ function compute_H00k_DE(alpha::Real, mu::Real, beta_map::Real, Kmax::Int;
     qfactor > 0 || throw(ArgumentError("qfactor must be positive"))
 
     alphaf = Float64(alpha)
-    muf = Float64(mu)
+    mu_sing = Float64(mu)
     betaf = Float64(beta_map)
     alphaf > -1.0 || throw(ArgumentError("alpha must be greater than -1"))
-    muf < 1.0 || throw(ArgumentError("mu must be less than 1"))
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     betaf > 0.0 || throw(ArgumentError("beta_map must be positive"))
 
     H = zeros(Float64, Kmax + 1)
-    H[1] = 2.0^(1.0 - muf) *
+    H[1] = 2.0^(1.0 - mu_sing) *
            exp(loggamma(alphaf + 1.0) +
-               loggamma(1.0 - muf) -
-               loggamma(alphaf + 2.0 - muf))
+               loggamma(1.0 - mu_sing) -
+               loggamma(alphaf + 2.0 - mu_sing))
     Kmax == 0 && return H
 
     A = (alphaf + 1.0) / betaf - 1.0
-    B = 1.0 - muf
+    B = 1.0 - mu_sing
     S = _tanh_sinh_S_for_qeps(epsq)
     Q = max(qfactor * Kmax, 80)
     h = 2.0 * S / (Q - 1)
-    pref = -2.0^(1.0 - muf) / betaf
+    pref = -2.0^(1.0 - mu_sing) / betaf
 
     xnodes = Float64[]
     weights = Float64[]
@@ -326,7 +327,7 @@ function compute_H00k_DE(alpha::Real, mu::Real, beta_map::Real, Kmax::Int;
             continue
         end
 
-        Sb = _S_beta_stable(q, betaf, muf)
+        Sb = _S_beta_stable(q, betaf, mu_sing)
         w = h * dq * q^A * (1.0 - q)^B * Sb
         if isfinite(w)
             push!(xnodes, 2.0 * q - 1.0)
@@ -423,19 +424,23 @@ end
 
 Direct all-table Gauss-Jacobi computation of
 `H[j+1,k+1] = H_{j,0,k}` for `0<=j<=J`, `0<=k<=N`.
+Here `mu` is the public singularity strength in `(x-y)^(-mu)`, so the
+Jacobi left endpoint exponent is `-mu`.
 """
 function initial_moments_direct(mu::Real, sigma::Real, beta::Real, J::Int, N::Int; Qbase = nothing)
     J < 0 && throw(ArgumentError("J must be nonnegative"))
     N < 0 && throw(ArgumentError("N must be nonnegative"))
 
-    muf = Float64(mu)
+    mu_sing = Float64(mu)
     sigf = Float64(sigma)
     betaf = Float64(beta)
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     Q = Qbase === nothing ? _default_Qbase(J, N) : Int(Qbase)
     gamma = (sigf + 1.0) / betaf - 1.0
+    a_left = -mu_sing
 
-    q, w = gaussjacobi(Q, muf, gamma)
-    R = _residual_factor_general(q, muf, sigf, betaf)
+    q, w = gaussjacobi(Q, a_left, gamma)
+    R = _residual_factor_general(q, mu_sing, sigf, betaf)
     Tj = chebT_table(q, J)
     A0 = A0_table(q, N)
     wr = w .* R
@@ -458,8 +463,11 @@ end
 function _base_row_gauss_jacobi(mu::Float64, sigma::Float64, beta::Float64,
                                 Kmax::Int, Q::Int)
     gamma = (sigma + 1.0) / beta - 1.0
-    q, w = gaussjacobi(Q, mu, gamma)
-    R = _residual_factor_general(q, mu, sigma, beta)
+    mu_sing = mu
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
+    a_left = -mu_sing
+    q, w = gaussjacobi(Q, a_left, gamma)
+    R = _residual_factor_general(q, mu_sing, sigma, beta)
     A0 = A0_table(q, Kmax)
     return A0' * (w .* R)
 end
@@ -474,7 +482,7 @@ function _base_row_fast(mu::Float64, sigma::Float64, beta::Float64, Kmax::Int, Q
     if de_adaptive
         H, info = compute_H00k_DE_adaptive(
             sigma,
-            -mu,
+            mu,
             beta,
             Kmax;
             qfactor = de_qfactor,
@@ -487,7 +495,7 @@ function _base_row_fast(mu::Float64, sigma::Float64, beta::Float64, Kmax::Int, Q
 
     H = compute_H00k_DE(
         sigma,
-        -mu,
+        mu,
         beta,
         Kmax;
         qfactor = de_qfactor,
@@ -511,6 +519,7 @@ Fast initialization of `M[j+1,k+1] = H_{j,0,k}`.
 
 Only the base row `M[1,0:N+J]` is integrated. All other rows are generated
 by the closed `(j,k)` recurrence for `P_k^(-1,0)`.
+Here `mu` is the public singularity strength in `(x-y)^(-mu)`.
 """
 function initial_moments_fast(mu::Real, sigma::Real, beta::Real, J::Int, N::Int;
                               Qbase = nothing,
@@ -523,14 +532,15 @@ function initial_moments_fast(mu::Real, sigma::Real, beta::Real, J::Int, N::Int;
     J < 0 && throw(ArgumentError("J must be nonnegative"))
     N < 0 && throw(ArgumentError("N must be nonnegative"))
 
-    muf = Float64(mu)
+    mu_sing = Float64(mu)
     sigf = Float64(sigma)
     betaf = Float64(beta)
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     Kmax = N + J
     Q = Qbase === nothing ? _default_Qbase(J, N) : Int(Qbase)
 
     M0, base_row_info = _base_row_fast(
-        muf,
+        mu_sing,
         sigf,
         betaf,
         Kmax,
@@ -1165,8 +1175,9 @@ for every column `k`.
 Compared with the earlier scatter-style direct kernel, this version computes
 one output entry at a time, accumulates into a local scalar, and writes each
 `S[ell+1,k+1]` only once per fixed `j`.  It also makes the lower-band cut
-explicit, which is useful when `beta = mu + 1` and the final multiplier only
-increases the lower bandwidth by one.
+explicit, which is useful when `beta = 1 - mu` and the final multiplier only
+increases the lower bandwidth by one under the public weak-singular
+convention.
 """
 function assemble_inner_matrix_direct_banded(C::AbstractMatrix, M0::AbstractMatrix,
                                              N::Int, sigma::Real)
@@ -2789,7 +2800,7 @@ end
 
 function apply_cheb_multiplier_to_matrix_fast(S::AbstractMatrix, g::AbstractVector;
                                               fft_degree_threshold::Int = typemax(Int))
-    # Stable default: do not use the batched REDFT00 path.  When beta=mu+1,
+    # Stable default: do not use the batched REDFT00 path.  When beta=1-mu,
     # eta=1 and g=[1/2,1/2], so the multiplier is tridiagonal in Chebyshev
     # coefficient space and should be applied sparsely.
     if _is_oneplus_over2_coeffs(g)
@@ -2862,20 +2873,24 @@ end
 """
     direct_volterra_basis_column_value(K, k, x; mu, sigma, beta, Q=300)
 
-High-order Gauss-Jacobi reference value for `(V B_k)(x)`.
+High-order Gauss-Jacobi reference value for `(V_K^mu B_k)(x)`, where
+`V_K^mu` uses the public convention
+`int_{-1}^x (x-y)^(-mu) K(x,y) B_k(y) dy`.
 """
 function direct_volterra_basis_column_value(K, k::Int, x::Real; mu::Real, sigma::Real = 0.0,
                                             beta::Real, Q::Int = 300)
     k < 0 && throw(ArgumentError("k must be nonnegative"))
     x <= -1.0 && return 0.0
 
-    muf = Float64(mu)
+    mu_sing = Float64(mu)
     sigf = Float64(sigma)
     betaf = Float64(beta)
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     gamma = (sigf + 1.0) / betaf - 1.0
-    q, w = gaussjacobi(Q, muf, gamma)
-    outer = ((1.0 + x) / 2.0)^(muf + 1.0 + sigf)
-    scale = 2.0^muf / betaf
+    a_left = -mu_sing
+    q, w = gaussjacobi(Q, a_left, gamma)
+    outer = ((1.0 + x) / 2.0)^(1.0 - mu_sing + sigf)
+    scale = 2.0^(-mu_sing) / betaf
     acc = 0.0
 
     @inbounds for n in eachindex(q)
@@ -2885,8 +2900,8 @@ function direct_volterra_basis_column_value(K, k::Int, x::Real; mu::Real, sigma:
         y = 0.5 * (x + 1.0) * tv + 0.5 * (x - 1.0)
         zy = phi_beta(y, betaf)
         Tk = cheb_eval_1d([zeros(k); 1.0], zy)
-        residual = scale * (1.0 - s^(1.0 / betaf))^muf * s^gamma /
-                   ((1.0 - qv)^muf * (1.0 + qv)^gamma)
+        residual = scale * (1.0 - s^(1.0 / betaf))^(-mu_sing) * s^gamma /
+                   ((1.0 - qv)^a_left * (1.0 + qv)^gamma)
         acc += w[n] * residual * K(x, y) * Tk
     end
 
@@ -2899,7 +2914,8 @@ end
 Compare selected final matrix columns against direct high-order quadrature in
 value space.  The public matrix returned by `weak_voltmat_cheb` is already
 postmultiplied back into the same weighted basis, so each selected column is
-evaluated with weight exponent `sigma`.
+evaluated with weight exponent `sigma`.  The `mu` keyword follows the public
+`(x-y)^(-mu)` convention.
 """
 function validate_weak_voltmat_columns(K, V;
                                        mu::Real,
@@ -2964,7 +2980,15 @@ end
     weak_voltmat_cheb(K_or_C; mu, sigma=0, beta, N, ...)
 
 Construct the same-basis coefficient matrix for the weakly singular Volterra
-operator in the weighted JFP-Chebyshev basis.
+operator
+
+    int_{-1}^x (x-y)^(-mu) K(x,y) u(y) dy
+
+in the weighted JFP-Chebyshev basis
+`((x+1)/2)^sigma T_n(2*((x+1)/2)^beta - 1)`.  The usual weakly singular
+range is `0 <= mu < 1`; the implementation requires `mu < 1` so that less
+singular powers can also be represented.  Choosing `beta = 1 - mu` makes the
+final multiplier exponent `eta = (1 - mu)/beta` equal to one.
 """
 function weak_voltmat_cheb(
     K_or_C;
@@ -3005,10 +3029,10 @@ function weak_voltmat_cheb(
     return_info::Bool = true,
 )
     N < 0 && throw(ArgumentError("N must be nonnegative"))
-    muf = Float64(mu)
+    mu_sing = Float64(mu)
     sigf = Float64(sigma)
     betaf = Float64(beta)
-    muf > -1.0 || throw(ArgumentError("mu must be greater than -1"))
+    mu_sing < 1.0 || throw(ArgumentError("mu must be less than 1"))
     sigf > -1.0 || throw(ArgumentError("sigma must be greater than -1"))
     betaf > 0.0 || throw(ArgumentError("beta must be positive"))
     gamma = (sigf + 1.0) / betaf - 1.0
@@ -3061,13 +3085,13 @@ function weak_voltmat_cheb(
     Jeff = size(C, 2) - 1
     inner_direct_threshold_eff = max(assembly_direct_I_threshold, Ieff)
     qbase_eff = Qbase === nothing ? _default_Qbase(Jeff, N) : Int(Qbase)
-    eta = (muf + 1.0) / betaf
+    eta = (1.0 - mu_sing) / betaf
     use_threaded = Threads.nthreads() > 1 && N >= threaded_N_threshold
 
     t_init = time_ns()
     Minit, init_info = if init_method === :fast
         initial_moments_fast(
-            muf,
+            mu_sing,
             sigf,
             betaf,
             Jeff,
@@ -3081,7 +3105,7 @@ function weak_voltmat_cheb(
             return_info = true,
         )
     elseif init_method === :direct
-        Mdirect_init = initial_moments_direct(muf, sigf, betaf, Jeff, N; Qbase = qbase_eff)
+        Mdirect_init = initial_moments_direct(mu_sing, sigf, betaf, Jeff, N; Qbase = qbase_eff)
         Mdirect_init, (
             method = :direct,
             Qbase = qbase_eff,
@@ -3094,7 +3118,7 @@ function weak_voltmat_cheb(
 
     init_compare_info = if init_compare
         direct_Qbase = init_compare_Qfactor * qbase_eff
-        Mdirect_cmp = initial_moments_direct(muf, sigf, betaf, Jeff, N; Qbase = direct_Qbase)
+        Mdirect_cmp = initial_moments_direct(mu_sing, sigf, betaf, Jeff, N; Qbase = direct_Qbase)
         diff_inf = maximum(abs.(Minit .- Mdirect_cmp))
         rel_inf = diff_inf / max(maximum(abs, Mdirect_cmp), floatmin(Float64))
         (
@@ -3309,7 +3333,7 @@ function weak_voltmat_cheb(
         I = Ieff,
         J = Jeff,
         N = N,
-        mu = muf,
+        mu = mu_sing,
         sigma = sigf,
         beta = betaf,
         eta = eta,

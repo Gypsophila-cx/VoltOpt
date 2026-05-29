@@ -55,10 +55,14 @@ form
 =
 \int_{-1}^{x}
 (x-y)^{-\mu} K(x,y) u(y)\,dy,
+\qquad 0 \le \mu < 1,
 ```
 
 where `K(x,y)` is smooth and the algebraic singularity is handled in a
-Chebyshev/JFP-type weighted basis.  The constructor lives in
+Chebyshev/JFP-type weighted basis.  For example, `mu = 0.5` means the kernel
+factor is `(x-y)^(-1/2)`.  A natural mapped-basis choice is
+`beta = 1 - mu`, which leaves the final endpoint multiplier as `(1+z)/2`.
+The constructor lives in
 `src/VoltMat/weak_voltmat_cheb.jl` and is exported as `weak_voltmat_cheb`:
 
 ```julia
@@ -68,9 +72,9 @@ K(x, y) = exp(-x * y)
 
 V, info = weak_voltmat_cheb(
     K;
-    mu = 0.25,
+    mu = 0.5,
     sigma = 0.0,
-    beta = 1.25,
+    beta = 0.5,
     N = 32,
 )
 ```
@@ -81,7 +85,7 @@ You can also access the implementation modules directly:
 using VoltOpt
 
 B = VoltMat_Cheb.voltmat_cheb(K, 32)
-W = Weak_VoltMat_Cheb.weak_voltmat_cheb(K; mu=0.25, sigma=0.0, beta=1.25, N=32)
+W = Weak_VoltMat_Cheb.weak_voltmat_cheb(K; mu=0.5, sigma=0.0, beta=0.5, N=32)
 L = VoltMat_Leg.voltmat_leg(K, 32)
 J = VoltMat_Jacobi.voltmat_jacobi(K, 32, 0.0, 0.0)
 ```
@@ -219,8 +223,9 @@ second-kind Volterra equation using `weak_voltmat_cheb`.  The smooth part is
 K(x,y)=\frac{1}{(x+1)^2+(y-1)^2},
 ```
 
-with `mu=-0.5`, `beta=mu+1`, and a Joukowski/Fourier-polynomial-style mapped
-Chebyshev basis.  A BigFloat tanh-sinh quadrature is used to project the
+with `mu=0.5`, `beta=1-mu=0.5`, and a Joukowski/Fourier-polynomial-style
+mapped Chebyshev basis.  Here `mu=0.5` denotes the weak kernel factor
+`(x-y)^(-1/2)`.  A BigFloat tanh-sinh quadrature is used to project the
 right-hand side, and the figures show convergence plus the numerical/exact
 solution comparison.
 
