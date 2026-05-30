@@ -22,10 +22,10 @@ export voltmat_jacobi,
 #     B = voltmat_jacobi(K, N, alpha, beta)
 #     B = voltmat_jacobi(C, N, alpha, beta)
 #
-# The output is a square SparseMatrixCSC of size (N+1) x (N+1), containing only
-# the symmetric band -bandwidth <= ell-k <= bandwidth.  Default bandwidth is
-# size(C,1).  In the adaptive constructor the returned coefficient matrix C
-# is forced to satisfy size(C,1) >= size(C,2).
+# The output is a square SparseMatrixCSC of size (N+1) x (N+1).  By default
+# non-Legendre Jacobi uses dense top rows plus a banded tail.  The Legendre case
+# remains strictly banded.  In the adaptive constructor the returned coefficient
+# matrix C is forced to satisfy size(C,1) >= size(C,2).
 #
 # C[i+1,j+1] is the coefficient of P_i^(alpha,beta)(x) P_j^(alpha,beta)(t)
 # in Khat(x,t)=K(x,(x+1)/2*t+(x-1)/2).
@@ -56,14 +56,14 @@ end
 @inline function _default_top_rows(nrow::Int, mcol::Int,
                                   alpha::Float64, beta::Float64,
                                   N::Int)
-    # For C in R^{n x m}, the non-Legendre Jacobi construction only needs
-    # top n-m+1 dense rows; the remaining rows are covered by the symmetric
-    # band with half-bandwidth n.  In the Legendre case the matrix is strictly
-    # banded and no dense top block is assembled.
+    # For C in R^{n x m}, the default non-Legendre Jacobi construction uses
+    # top n dense rows, matching the default tail half-bandwidth n.
+    # In the Legendre case the matrix is strictly banded and no dense top
+    # block is assembled.
     if _is_legendre_case(alpha, beta)
         return 0
     end
-    return min(max(nrow - mcol + 1, 0), N + 1)
+    return min(nrow, N + 1)
 end
 
 @inline function _resolve_init_layer_backend(backend::Symbol,
@@ -1214,8 +1214,9 @@ end
 # -----------------------------------------------------------------------------
 # Dense top rows by the (s,k)-recurrence.
 #
-# This constructs the dense top block of the Jacobi-Volterra matrix.  The number
-# of top rows defaults to size(C,1), matching the default symmetric bandwidth.
+# This constructs the dense top block of the Jacobi-Volterra matrix.  In the
+# non-Legendre case, the number of top rows defaults to size(C,1), matching the
+# default symmetric bandwidth.  In the Legendre case no dense top block is used.
 #
 # We use the unscaled auxiliary quantity
 #
@@ -1640,19 +1641,19 @@ end
 
 
 # -----------------------------------------------------------------------------
-# Main constructor from known C.
+# Internal tail-only constructor from known C.
 # -----------------------------------------------------------------------------
 
-function voltmat_jacobi(C::AbstractMatrix{<:Real},
-                        N::Integer,
-                        alpha::Real=0.0,
-                        beta::Real=0.0;
-                        bandwidth::Union{Nothing,Integer}=nothing,
-                        dropzeros_tol::Float64=0.0,
-                        lin_droptol::Float64=0.0,
-                        G_backend::Symbol=:recurrence,
-                        init_layer_backend::Symbol=:auto,
-                        return_info::Bool=false)
+function _voltmat_jacobi_bandtail(C::AbstractMatrix{<:Real},
+                                  N::Integer,
+                                  alpha::Real=0.0,
+                                  beta::Real=0.0;
+                                  bandwidth::Union{Nothing,Integer}=nothing,
+                                  dropzeros_tol::Float64=0.0,
+                                  lin_droptol::Float64=0.0,
+                                  G_backend::Symbol=:recurrence,
+                                  init_layer_backend::Symbol=:auto,
+                                  return_info::Bool=false)
     alpha, beta = _check_ab(alpha, beta)
     N < 0 && throw(ArgumentError("N must be nonnegative."))
     Nint = Int(N)
@@ -1692,7 +1693,39 @@ function voltmat_jacobi(C::AbstractMatrix{<:Real},
 end
 
 # -----------------------------------------------------------------------------
-# Main constructor from analytic K.
+# Public constructor from known C.
+# -----------------------------------------------------------------------------
+
+function voltmat_jacobi(C::AbstractMatrix{<:Real},
+                        N::Integer,
+                        alpha::Real=0.0,
+                        beta::Real=0.0;
+                        n_top::Union{Nothing,Integer}=nothing,
+                        bandwidth::Union{Nothing,Integer}=nothing,
+                        G_backend::Symbol=:recurrence,
+                        init_layer_backend::Symbol=:auto,
+                        init_precision::Integer=256,
+                        dropzeros_tol::Float64=0.0,
+                        lin_droptol::Float64=0.0,
+                        return_info::Bool=false)
+    return voltmat_jacobi_full(
+        C,
+        N,
+        alpha,
+        beta;
+        n_top=n_top,
+        bandwidth=bandwidth,
+        G_backend=G_backend,
+        init_layer_backend=init_layer_backend,
+        init_precision=init_precision,
+        dropzeros_tol=dropzeros_tol,
+        lin_droptol=lin_droptol,
+        return_info=return_info,
+    )
+end
+
+# -----------------------------------------------------------------------------
+# Public constructor from analytic K.
 # -----------------------------------------------------------------------------
 
 function voltmat_jacobi(K::Function,
@@ -1711,11 +1744,13 @@ function voltmat_jacobi(K::Function,
                         plateau_window::Integer=8,
                         plateau_drop::Float64=0.1,
                         chop_guard::Integer=4,
+                        n_top::Union{Nothing,Integer}=nothing,
                         bandwidth::Union{Nothing,Integer}=nothing,
                         dropzeros_tol::Float64=0.0,
                         lin_droptol::Float64=0.0,
                         G_backend::Symbol=:recurrence,
                         init_layer_backend::Symbol=:auto,
+                        init_precision::Integer=256,
                         enforce_n_ge_m::Bool=true,
                         return_C::Bool=false,
                         return_info::Bool=false,
@@ -1742,11 +1777,13 @@ function voltmat_jacobi(K::Function,
         verbose=verbose,
     )
     B, assembly_info = voltmat_jacobi(C, N, alpha, beta;
+                                      n_top=n_top,
                                       bandwidth=bandwidth,
                                       dropzeros_tol=dropzeros_tol,
                                       lin_droptol=lin_droptol,
                                       G_backend=G_backend,
                                       init_layer_backend=init_layer_backend,
+                                      init_precision=init_precision,
                                       return_info=true)
     info = (; interp_info..., assembly_info...)
     if return_C && return_info
@@ -1766,9 +1803,10 @@ end
 #   first n_top rows are dense,
 #   remaining rows are taken from the symmetric band constructor.
 #
-# By default, n_top = bandwidth = size(C,1).  The output is a SparseMatrixCSC
-# whose top rows store all numerically nonzero entries and whose tail rows store
-# only the banded part.
+# By default, non-Legendre Jacobi uses n_top = min(size(C,1), N+1) and
+# bandwidth = min(size(C,1), N).  Legendre uses n_top = 0 and the same default
+# bandwidth.  The output is a SparseMatrixCSC whose top rows store all
+# numerically nonzero entries and whose tail rows store only the banded part.
 # -----------------------------------------------------------------------------
 
 function _merge_topdense_and_tail(
@@ -1854,7 +1892,7 @@ function voltmat_jacobi_full(
     bw < 0 && throw(ArgumentError("bandwidth must be nonnegative."))
     bw = min(bw, Nint)
 
-    Btail, tail_info = voltmat_jacobi(
+    Btail, tail_info = _voltmat_jacobi_bandtail(
         C,
         Nint,
         alpha,
@@ -1891,10 +1929,12 @@ function voltmat_jacobi_full(
         mcol=mcol,
         n_top=ntop,
         bandwidth=bw,
+        Rneed=tail_info.Rneed,
         G_backend=G_backend,
         init_layer_backend=tail_info.init_layer_backend,
         init_precision=Int(init_precision),
         matrix_size=size(B),
+        nnz=nnz(B),
         top_nnz=count(!iszero, Btop),
         tail_nnz=tail_info.nnz,
         final_nnz=nnz(B),
