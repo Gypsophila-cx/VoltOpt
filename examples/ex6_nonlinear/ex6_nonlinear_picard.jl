@@ -288,15 +288,17 @@ function main()
 
     err_plot = plot(
         iters, eqerrs;
-        xlabel="Picard iteration",
-        ylabel="maximum error on equispaced grid",
+        xlabel="iteration",
+        ylabel="error",
         yaxis=:log10,
-        ylims=(tol, ymax),
-        marker=:circle,
-        label="equispaced-grid error",
-        title=@sprintf("Picard error decay, final iter=%d, final err=%.3e", final_iter, final_eqgrid_err),
+        ylims=(1e-15, 1),
+        marker=false,
+        label=nothing,
+        color=:black,
+        framestyle=:box,
+        grid = false,
     )
-    plot!(err_plot, iters, update_errs; linestyle=:dot, marker=:diamond, label="Picard update")
+    #plot!(err_plot, iters, update_errs; linestyle=:dot, marker=:diamond, label="Picard update")
     error_png = savefig_pdf_png(err_plot, error_fig)
 
     write_history_csv(history_csv, history)

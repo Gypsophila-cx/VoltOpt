@@ -1,0 +1,4 @@
+method,fit_N_min,fit_N_max,num_fit_points,slope_p,intercept_a,r2,notes
+our_coeffspace_packed,287,10000,27,2.14491056934840918e+00,-1.70336376297087178e+01,9.98141343598618169e-01,
+our_coeffspace_dense,256,0,0,NaN,NaN,NaN,too_few_fit_points
+muntz_collocation,287,1024,10,3.16781971768917403e+00,-2.07152448860755598e+01,9.91449878991214728e-01,

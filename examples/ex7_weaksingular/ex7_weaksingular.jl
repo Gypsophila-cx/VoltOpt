@@ -483,11 +483,12 @@ function main()
         xplot,
         u_num;
         label = "numerical",
+        framestyle=:box,
         xlabel = "x",
         ylabel = "u(x)",
-        linewidth = 2.2,
+        linewidth = 2.0,
         legend = :best,
-        grid = true,
+        grid = false,
         size = (760, 460),
     )
     plot!(p_solution, xplot, u_ex; label = "exact", linewidth = 2.0, linestyle = :dash)
@@ -502,16 +503,18 @@ function main()
         errs;
         label = nothing,
         xlabel = "N",
-        ylabel = "maximum error",
+        ylabel = "error",
         yscale = :log10,
+        framestyle=:box,
         #ylims = (1e-15, 1e1),
         #yticks = (ytick_values, ytick_labels),
-        linewidth = 2.2,
-        marker = :circle,
-        markersize = 3.5,
+        linewidth = 2.0,
+        marker = false,
+        # markersize = 3.5,
         legend = :topright,
-        grid = true,
+        grid = false,
         size = (760, 460),
+        color = :black,
     )
     error_png = savefig_pdf_png(p_error, error_pdf)
 

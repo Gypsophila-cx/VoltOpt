@@ -2,9 +2,6 @@ using LinearAlgebra
 using SparseArrays
 using FFTW
 using Printf
-using Plots
-using DelimitedFiles
-using SpecialFunctions: expinti
 
 const THIS_DIR = @__DIR__
 
@@ -23,13 +20,7 @@ end
 const VOLTERRA_ROOT = find_project_root()
 const SRC_DIR = joinpath(VOLTERRA_ROOT, "src")
 const FIGURES_DIR = joinpath(VOLTERRA_ROOT, "examples", "figures")
-
-function savefig_pdf_png(fig, pdf_path::AbstractString)
-    png_path = replace(pdf_path, r"\.pdf$" => ".png")
-    savefig(fig, pdf_path)
-    savefig(fig, png_path)
-    return png_path
-end
+const DATA_DIR = joinpath(VOLTERRA_ROOT, "examples", "data")
 
 # Optional fast solver.
 # If FastAlmostBandedMatrices.jl is unavailable, the script falls back to sparse LU.
@@ -162,6 +153,31 @@ function save_results_csv(filename::AbstractString, results)
             )
         end
     end
+end
+
+function save_absolute_error_csv(filename::AbstractString, results)
+    open(filename, "w") do io
+        println(io, "N,abs_error_inf,residual_inf,total_time")
+        for r in results
+            @printf(io, "%d,%.17e,%.17e,%.17e\n",
+                r.N,
+                r.err_inf,
+                r.res_inf,
+                r.total_time,
+            )
+        end
+    end
+    return filename
+end
+
+function evenly_spaced_integer_nodes(lo::Int, hi::Int, count::Int)
+    lo <= hi || error("lo must not exceed hi.")
+    count >= 2 || error("count must be at least 2.")
+
+    nodes = round.(Int, range(lo, hi; length=count))
+    length(unique(nodes)) == count || error("Rounded node list contains duplicates.")
+
+    return nodes
 end
 
 # ============================================================
@@ -678,7 +694,7 @@ function solve_volterra_once(
 end
 
 # ============================================================
-# 7. Run convergence experiment
+## 7. Run convergence experiment
 # ============================================================
 
 @printf("Warm-up run...\n")
@@ -689,18 +705,18 @@ solve_volterra_once(
     use_fastalmostbanded = true,
 )
 
-# 对 δ≈1e-3 的平滑阶跃，N=O(10^4) 才能真正进入高精度区间。
-Ns = [512, 1024, 2048, 4096, 8192, 12000, 16000, 20000, 24000, 30000, 36000, 40000]
+Ns = evenly_spaced_integer_nodes(2, 40000, 100)
 
 results = Vector{Any}()
 
 @printf("\n============================================================\n")
 @printf("Convergence test for aging Maxwell Volterra equation\n")
 @printf("Exact solution: two smoothed step layers\n")
-@printf("Independent RHS: analytic Heaviside part + localized Gauss correction\n")
+@printf("Independent RHS: split Gauss quadrature\n")
 @printf("x1 = %.4f, x2 = %.4f, A1 = %.2f, A2 = %.2f\n", x1, x2, A1, A2)
 @printf("δ1 = %.3e, δ2 = %.3e, tol = %.1e\n", δ1, δ2, tol)
 @printf("RHS_SPLIT_L = %.1f, RHS_Q = %d, Nref_coeff = %d\n", RHS_SPLIT_L, RHS_Q, NREF_COEFF)
+@printf("Ns: %d integer nodes in [%d, %d]\n", length(Ns), first(Ns), last(Ns))
 @printf("============================================================\n")
 
 for N in Ns
@@ -746,166 +762,16 @@ cf_max = result_max.cf
 @printf("res_inf                    = %.3e\n", result_max.res_inf)
 
 # ============================================================
-# 8. Plots and data
+# 8. Absolute-error CSV data
 # ============================================================
 
-figdir = FIGURES_DIR
-mkpath(figdir)
+datadir = DATA_DIR
+mkpath(datadir)
 
-save_coefficients_csv(joinpath(figdir, "ex1_aging_maxwell_coefficients_num_raw_N$(Nmax).csv"), cu_max)
-save_coefficients_csv(joinpath(figdir, "ex1_aging_maxwell_coefficients_interp_exact_raw_N$(Nmax).csv"), cu_interp_exact_max)
-save_coefficients_csv(joinpath(figdir, "ex1_aging_maxwell_coefficients_ref_raw_N$(NREF_COEFF).csv"), cu_exact_ref)
-save_coefficients_csv(joinpath(figdir, "ex1_aging_maxwell_rhs_coefficients_raw_N$(Nmax).csv"), cf_max)
-save_results_csv(joinpath(figdir, "ex1_aging_maxwell_summary_table.csv"), results)
-
-# ------------------------------------------------------------
-# 8.1 Coefficient magnitude plot
-# ------------------------------------------------------------
-
-kidx = 0:length(cu_max)-1
-coef_abs_num = abs.(cu_max)
-coef_abs_ref = abs.(cu_exact_ref[1:Nmax])
-
-positive_mask_num = coef_abs_num .> 0.0
-positive_mask_ref = coef_abs_ref .> 0.0
-
-coef_ticks = integer_power_ticks(vcat(coef_abs_num[positive_mask_num],
-                                      coef_abs_ref[positive_mask_ref]); step=3)
-
-p_coef = plot(
-    kidx[positive_mask_ref],
-    coef_abs_ref[positive_mask_ref];
-    yaxis = :log10,
-    yticks = coef_ticks,
-    xlabel = "n",
-    ylabel = "|coefficients|",
-    linewidth = 2.0,
-    label = "high-order reference",
-    grid = true,
-    minorgrid = true,
-    minorticks = 5,
-    tickfontsize = 8,
-    guidefontsize = 13,
-    legendfontsize = 10,
-    left_margin = 6Plots.mm,
-    bottom_margin = 5Plots.mm,
-    color = :black,
+abs_error_csv = save_absolute_error_csv(
+    joinpath(datadir, "ex1_aging_maxwell_abs_error.csv"),
+    results,
 )
-
-plot!(
-    p_coef,
-    kidx[positive_mask_num],
-    coef_abs_num[positive_mask_num];
-    linewidth = 1.2,
-    linestyle = :dash,
-    label = "numerical",
-    color = :gray,
-)
-
-savefig_pdf_png(p_coef, joinpath(figdir, "ex1_aging_maxwell_coefficients.pdf"))
-
-# ------------------------------------------------------------
-# 8.2 Numerical solution plot
-# ------------------------------------------------------------
-
-uplot_num = cheb_eval_many(cu_max, xplot)
-uplot_exact = u_exact.(xplot)
-
-p_sol = plot(
-    xplot,
-    uplot_exact;
-    xlabel = "x",
-    ylabel = "u(x)",
-    linewidth = 2.0,
-    label = "exact",
-    grid = true,
-    tickfontsize = 8,
-    guidefontsize = 13,
-    legendfontsize = 10,
-    left_margin = 6Plots.mm,
-    bottom_margin = 5Plots.mm,
-    color = :black,
-)
-
-plot!(
-    p_sol,
-    xplot,
-    uplot_num;
-    linewidth = 1.2,
-    linestyle = :dash,
-    label = "numerical",
-    color = :gray,
-)
-
-savefig_pdf_png(p_sol, joinpath(figdir, "ex1_aging_maxwell_solution.pdf"))
-
-# ------------------------------------------------------------
-# 8.3 RHS plot
-# ------------------------------------------------------------
-
-fplot = f_exact.(xplot)
-
-p_rhs = plot(
-    xplot,
-    fplot;
-    xlabel = "x",
-    ylabel = "f(x)",
-    linewidth = 2.0,
-    legend = false,
-    grid = true,
-    tickfontsize = 8,
-    guidefontsize = 13,
-    left_margin = 6Plots.mm,
-    bottom_margin = 5Plots.mm,
-    color = :black,
-)
-
-savefig_pdf_png(p_rhs, joinpath(figdir, "ex1_aging_maxwell_rhs.pdf"))
-
-# ------------------------------------------------------------
-# 8.4 Error vs N
-# ------------------------------------------------------------
-
-Ns_plot = [r.N for r in results]
-rels_plot = [r.rel_inf for r in results]
-coeff_err_plot = [r.coeff_err for r in results]
-
-fixed_yticks = fixed_power_ticks(kmin=-14, kmax=0, step=3)
-
-p_err = plot(
-    Ns_plot,
-    rels_plot;
-    yaxis = :log10,
-    yticks = fixed_yticks,
-    ylims = (1e-14, 1.0),
-    marker = :circle,
-    linewidth = 2.0,
-    xlabel = "N",
-    ylabel = "Error",
-    label = "value rel. error",
-    grid = true,
-    minorgrid = true,
-    minorticks = 5,
-    tickfontsize = 10,
-    guidefontsize = 13,
-    legendfontsize = 10,
-    left_margin = 6Plots.mm,
-    bottom_margin = 5Plots.mm,
-    color = :black,
-)
-
-plot!(
-    p_err,
-    Ns_plot,
-    coeff_err_plot;
-    marker = :square,
-    linewidth = 2.0,
-    linestyle = :dash,
-    label = "coeff. ref. error",
-    color = :gray,
-)
-
-savefig_pdf_png(p_err, joinpath(figdir, "ex1_aging_maxwell_error_vs_N.pdf"))
 
 # ============================================================
 # 9. Print summary table
@@ -934,10 +800,5 @@ for r in results
     )
 end
 
-println("\nFigures and data saved to $(figdir)/")
-println("  1. ex1_aging_maxwell_coefficients.pdf")
-println("  2. ex1_aging_maxwell_solution.pdf")
-println("  3. ex1_aging_maxwell_rhs.pdf")
-println("  4. ex1_aging_maxwell_error_vs_N.pdf")
-println("  5. matching .png files for the figures above")
-println("  6. ex1_aging_maxwell_summary_table.csv")
+println("\nAbsolute-error CSV saved to $(abs_error_csv)")
+println("Run examples/ex1_2ndVolterraEqn/ex1_aging_maxwell_plot_abs_error.jl to draw the absolute-error figure.")

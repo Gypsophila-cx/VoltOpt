@@ -102,12 +102,12 @@ function plot_weak_fixedC_varyN_time(
         t_build;
         xscale = :log10,
         yscale = :log10,
-        marker = :circle,
+        marker = false,
         markersize = 5,
         linewidth = 2.5,
-        label = "Weak Chebyshev/JFP",
+        label = nothing,
         xlabel = "matrix size N",
-        ylabel = "construction time / s",
+        ylabel = "construction time (sec)",
         legend = :topleft,
         framestyle = :box,
         dpi = 300,
@@ -118,7 +118,7 @@ function plot_weak_fixedC_varyN_time(
     if add_reference_line && length(N) >= 2
         r = tail_range(N; ntail = min(8, length(N)))
         idx = first(r)
-        ref = reference_power(N, N[idx], t_build[idx] * 0.8, 2)
+        ref = reference_power(N, N[idx], t_build[idx] * 0.7, 2)
 
         plot!(
             plt,

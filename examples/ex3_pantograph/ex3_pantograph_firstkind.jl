@@ -68,7 +68,7 @@ include(joinpath(SRC_DIR, "VoltMat", "voltmat_cheb.jl"))
 using .VoltMat_Cheb
 
 const q_default = 0.5
-const Ns = collect(2:2:100)
+const Ns = collect(2:1:100)
 const tol_machine = eps(Float64)
 const tol_volt = tol_machine
 const tol_cheb = tol_machine
@@ -1358,12 +1358,16 @@ function write_bigtruth_error_plot(path, Ns_vec, errors)
         Ns_vec,
         errors;
         yscale = :log10,
+        linewidth = 2.0,
         ylims = (1e-15, 1e1),
         yticks = (ytick_values, ytick_labels),
         xlabel = "N",
-        ylabel = "maximum error",
-        marker = :circle,
+        ylabel = "error",
+        framestyle = :box,
+        grid = false,
+        marker = false,
         legend = false,
+        color = :black,
     )
 
     savefig_pdf_png(p, path)
@@ -1622,6 +1626,4 @@ function main()
     )
 end
 
-if abspath(PROGRAM_FILE) == abspath(@__FILE__)
-    main()
-end
+main()
