@@ -1,0 +1,2 @@
+N,kerneldepth,elapsed_time,rhs_validation_error,tau_residual,body_residual_relative,max_abs_error,raw_operator_type,raw_operator_nnz,raw_lower_bandwidth,raw_upper_bandwidth,body_operator_type,body_operator_nnz,body_lower_bandwidth,body_upper_bandwidth,final_system_type,final_system_nnz,final_lower_bandwidth,final_upper_bandwidth,density,status
+128,12,9.8601379,1.901613757127052e-6,4.70264109582792e-11,1.1167327725282074e-7,9.404194067919036e-8,BandedMatrix,2812,11,11,BandedMatrix,3273,12,14,SparseMatrixCSC,3388,13,127,0.206787109375,pass

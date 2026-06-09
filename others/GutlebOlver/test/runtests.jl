@@ -1,4 +1,3 @@
 using Test
 
-include("test_construct.jl")
-include("test_correctness.jl")
+include("test_section522_k100_sparse.jl")

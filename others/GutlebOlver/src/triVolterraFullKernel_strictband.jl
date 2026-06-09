@@ -370,7 +370,7 @@ function precompute_triangular_kernel_plan(kerneldepth::Integer, flip::Bool)
 
     sp = JacobiTriangle()
     basis = sp[:, Block.(1:kerneldepth)]
-    grid, transform = MultivariateOrthogonalPolynomials.plan_grid_transform(
+    grid, transform = MultivariateOrthogonalPolynomials.ContinuumArrays.plan_grid_transform(
         sp,
         (Block(kerneldepth),),
     )
@@ -388,16 +388,41 @@ function precompute_triangular_kernel_plan(kerneldepth::Integer, flip::Bool)
     )
 end
 
+function _triangular_kernel_point_grid(grid)
+    if grid isa Tuple
+        if length(grid) == 1
+            return grid[1]
+        elseif length(grid) == 2 && size(grid[1]) == size(grid[2])
+            return grid
+        end
+    end
+    return grid
+end
+
+function _sample_triangular_kernel_value(K::Function, xy, flip::Bool)
+    x = xy[1]
+    y = xy[2]
+    return flip ? K(1 - x, y) : K(x, y)
+end
+
 function sample_triangular_kernel_values(plan::TriangularKernelPlan, K::Function)
-    if plan.flip
-        return map(xy -> K(1 - xy[1], xy[2]), plan.grid)
+    point_grid = _triangular_kernel_point_grid(plan.grid)
+    if point_grid isa Tuple
+        xgrid, ygrid = point_grid
+        if plan.flip
+            return map((x, y) -> K(1 - x, y), xgrid, ygrid)
+        else
+            return map(K, xgrid, ygrid)
+        end
     else
-        return map(xy -> K(xy[1], xy[2]), plan.grid)
+        return map(xy -> _sample_triangular_kernel_value(K, xy, plan.flip), point_grid)
     end
 end
 
 function project_triangular_kernel_coeffs_from_values(plan::TriangularKernelPlan, values)
-    size(values) == size(plan.grid) ||
+    point_grid = _triangular_kernel_point_grid(plan.grid)
+    expected_size = point_grid isa Tuple ? size(point_grid[1]) : size(point_grid)
+    size(values) == expected_size ||
         throw(DimensionMismatch("sample values must have the same size as the plan grid"))
 
     Kfun = plan.transform * values
@@ -559,6 +584,34 @@ function apply_conversion_00_to_12_strictband(V, n::Integer; check_band::Bool=tr
     lC, uC = _strictband_bandwidths(C00to12)
     return _strictband_leftmul_banded(C00to12, V, lV + lC, uV + uC;
                                       check_band=check_band)
+end
+
+function apply_conversion_00_to_01_strictband(V, n::Integer; check_band::Bool=true)
+    n < 1 && throw(ArgumentError("n must be positive"))
+    size(V, 1) == n && size(V, 2) == n ||
+        throw(DimensionMismatch("V must be n by n"))
+    lV, uV = _strictband_bandwidths(V)
+    C00to01 = Conversion(Jacobi(0, 0, 0..1), Jacobi(0, 1, 0..1))[1:n, 1:n]
+    lC, uC = _strictband_bandwidths(C00to01)
+    return _strictband_leftmul_banded(C00to01, V, lV + lC, uV + uC;
+                                      check_band=check_band)
+end
+
+function build_secondkind_volterra_strictband(Vraw, n::Integer; check_band::Bool=true)
+    Vrl = apply_reflect_lowering_strictband(Vraw, n; check_band=check_band)
+    return apply_conversion_00_to_01_strictband(Vrl, n; check_band=check_band)
+end
+
+function build_secondkind_system_strictband(Vraw, n::Integer; sign::Real=1.0,
+                                            check_band::Bool=true)
+    Vphys = build_secondkind_volterra_strictband(Vraw, n; check_band=check_band)
+    lV, uV = _strictband_bandwidths(Vphys)
+    out = _strictband_zero(n, lV, uV)
+    @inbounds for i = 1:n
+        out[i, i] = 1.0
+    end
+    axpy_banded!(out, Float64(sign), Vphys; check_band=check_band)
+    return out
 end
 
 function build_VIDE_LHS_sec522_strictband(V, n::Integer; check_band::Bool=true)

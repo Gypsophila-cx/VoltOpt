@@ -1,0 +1,3 @@
+problem,method,N,error_type,error,rhs_time,kernel_approx_time,matrix_construct_time,solve_time,total_time,bandwidth,kernel_size_y,kernel_size_t,rank,condition_number,reference_N,notes
+ex2,voltmat,16,max_abs,0.048505919177185164,0.0344229,0.2261737,0.025142400000000002,1.32e-5,0.2857522,16,-1,-1,-1,10.465008533480061,,Ns from examples/ex2_1stVolterraEqn; differentiated second-kind K1 case
+ex2,gutleb_olver,16,max_abs,0.7160203386726705,3.56e-5,0.1453808,2.43e-5,1.08e-5,0.1454515,16,3,3,-1,60.05601500599163,,"Ns from examples/ex2_1stVolterraEqn; differentiated second-kind K1 case; GO integral = Multiplication(x, Jacobi(0,1)) * strict-banded operator"
