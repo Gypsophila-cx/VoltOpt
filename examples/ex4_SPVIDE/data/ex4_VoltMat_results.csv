@@ -1,0 +1,2 @@
+method,N,N_ref,omega,cauchy_coeff_error,cauchy_grid_error,tail_coeff_norm,build_operator_sec,build_rhs_sec,solve_sec,total_time_sec,nnzA,nnzVK,residual_inf,status
+VoltMat,30000,30300,1.0,2.6645352591003757e-15,1.13420384195706e-12,8.386050934785631e-18,1.841808,0.11227989999999999,0.8355922,3.8074647,989187,899256,1.1303735725221031e-11,ok

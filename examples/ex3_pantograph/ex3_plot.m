@@ -1,0 +1,96 @@
+%% ex3_plot.m
+% Read data from ./data and save figures to ./figures
+
+clear; clc; close all;
+
+this_dir = fileparts(mfilename('fullpath'));
+if isempty(this_dir)
+    this_dir = pwd;
+end
+
+data_dir = fullfile(this_dir, 'data');
+fig_dir  = fullfile(this_dir, 'figures');
+
+if ~exist(fig_dir, 'dir')
+    mkdir(fig_dir);
+end
+
+csv_path = fullfile(data_dir, 'ex3_error_time.csv');
+mat_path = fullfile(data_dir, 'ex3_A_Nmax.mat');
+
+if ~isfile(csv_path)
+    error('Cannot find CSV file: %s', csv_path);
+end
+
+if ~isfile(mat_path)
+    error('Cannot find MAT file: %s', mat_path);
+end
+
+%% Read error and timing CSV
+
+T = readtable(csv_path);
+
+% Detect N column
+if ismember('N', T.Properties.VariableNames)
+    N = T.N;
+else
+    error('CSV must contain a column named N.');
+end
+
+% Detect error column
+candidate_err_names = {'err_inf', 'error', 'max_error', ...
+                       'err_inf_bigtruth', 'coeff_error_inf'};
+
+err_col = 'err_inf_bigtruth';
+
+err = T.(err_col);
+
+
+%% Plot error decay curve
+
+fig1 = figure('Color', 'w');
+semilogy(N, err, 'LineWidth', 1.8);
+xlabel('$N$', 'Interpreter', 'latex');
+ylabel('error', 'Interpreter', 'latex');
+
+box on;
+%grid on;
+
+set(gca, 'FontName', 'Times New Roman', 'FontSize', 13);
+
+exportgraphics(fig1, fullfile(fig_dir, 'ex3_error.pdf'), ...
+               'ContentType', 'vector');
+exportgraphics(fig1, fullfile(fig_dir, 'ex3_error.png'), ...
+               'Resolution', 300);
+
+%% Read coefficient matrix and draw sparsity pattern
+
+S = load(mat_path);
+
+if isfield(S, 'A')
+    A = S.A;
+else
+    error('MAT file must contain variable A.');
+end
+
+if isfield(S, 'Nmax')
+    Nmax = S.Nmax;
+else
+    Nmax = size(A, 1) - 1;
+end
+
+fig3 = figure('Color', 'w');
+spy(sparse(A), 'k.', 1.5);
+xlabel('column index', 'Interpreter', 'latex');
+ylabel('row index', 'Interpreter', 'latex');
+axis square;
+box on;
+
+set(gca, 'FontName', 'Times New Roman', 'FontSize', 13);
+
+exportgraphics(fig3, fullfile(fig_dir, 'ex3_matrix_spy.pdf'), ...
+               'ContentType', 'vector');
+exportgraphics(fig3, fullfile(fig_dir, 'ex3_matrix_spy.png'), ...
+               'Resolution', 300);
+
+fprintf('Figures saved to:\n  %s\n', fig_dir);

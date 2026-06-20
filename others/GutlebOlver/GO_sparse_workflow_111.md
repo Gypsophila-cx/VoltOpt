@@ -1,151 +1,269 @@
-# Julia 1.11.1 Sparse Gutleb--Olver Workflow
+# Gutleb--Olver Sparse Workflow
 
-This standalone project contains the minimal sparse/strict-band workflow needed for:
+This project packages the strict-band Gutleb--Olver sparse Volterra workflow as `GutlebOlver`. The refactor is modular only: the current strict-band / semi-banded numerical path and the Section 5.2.2 golden result are preserved.
 
-1. the manufactured second-kind Volterra equation with `K=1`;
-2. the Section 5.2.2 `k=100` Volterra integro-differential equation.
-
-## Core Files
+## Module Structure
 
 ```text
 Project.toml
-src/SparseGOWorkflow111.jl
+Manifest.toml
+README.md
+GO_sparse_workflow_111.md
+src/GutlebOlver.jl
+src/rhs_projection.jl
+src/triangular_kernel_projection.jl
 src/clenshaw.jl
-src/triQEgen.jl
-src/triVolterraFullKernel_strictband.jl
+src/operators.jl
+src/volterra_strictband.jl
+src/equation_assembly.jl
+src/diagnostics.jl
 src/workflows.jl
+examples/solve_simple_secondkind_sparse.jl
 examples/solve_section522_k100_sparse.jl
 test/runtests.jl
+test/test_rhs_projection.jl
+test/test_triangular_kernel_projection.jl
+test/test_operators.jl
+test/test_simple_secondkind_sparse.jl
 test/test_section522_k100_sparse.jl
+test/test_dense_path_scan.jl
 test/golden_section522_k100.toml
 ```
 
-The copied core sources are limited to the sparse path:
+`src/GutlebOlver.jl` contains no implementation logic beyond dependency loading, includes, and exports.
 
-- triangle Jacobi Clenshaw recurrence;
-- `Q_y`, `E_y`, `Q_yE_y`;
-- weighted lowering and reflection;
-- strict-band full-kernel construction;
-- `00 -> 01` and `00 -> 12` conversions;
-- semi-banded sparse system assembly and diagnostics.
+## Public API
 
-## Public API and Migration Notes
-
-The recommended public entry points are exported from `src/SparseGOWorkflow111.jl`:
-
-```julia
-build_simple_secondkind_system
-solve_simple_secondkind_sparse
-build_section522_rhs
-build_section522_operator
-solve_section522_k100_sparse
-safe_bandwidth
-safe_nnz
-safe_density
-write_results_csv
-append_result_csv
-print_section522_result
-print_section522_summary
-```
-
-Minimal usage:
-
-```julia
-using SparseGOWorkflow111
-
-result = solve_section522_k100_sparse(N=128, kerneldepth=12)
-println(result.max_abs_error)
-println(result.final_system_type)
-```
-
-The workflow result is a `NamedTuple` with stable top-level diagnostics:
+RHS projection:
 
 ```text
-k
-N
-kerneldepth
-rhs_validation_error
-tau_residual
-body_residual_relative
-max_abs_error
-raw_operator_type
-raw_operator_nnz
-raw_operator_bandwidth
-body_operator_type
-body_operator_nnz
-body_operator_bandwidth
-final_system_type
-final_system_nnz
-full_bandwidth
-body_bandwidth
-density
-timings
+build_go_rhs_coefficients
+validate_rhs_projection
+```
+
+Triangular kernel projection:
+
+```text
+precompute_triangular_kernel_plan
+sample_triangular_kernel_values
+project_triangular_kernel_coeffs_from_values
+triangular_kernel_coeffs_from_plan
+```
+
+Strict-band Volterra construction:
+
+```text
+triVolterraFullKernelOpP01_strictband_from_coeffs
+build_secondkind_volterra_strictband
+build_secondkind_system_strictband
+build_VIDE_LHS_sec522_strictband
+```
+
+Basic operators:
+
+```text
+triQgen
+triEygenP01
+triQEygenP01
+WLoweringP01P00
+reflectPabtoPba
+apply_reflect_lowering_strictband
+apply_conversion_00_to_01_strictband
+apply_conversion_00_to_12_strictband
+build_derivative_P01_to_P12
+build_initial_evaluation_row
+```
+
+Equation assembly and workflows:
+
+```text
+assemble_semibanded_system
+assemble_section522_semibanded_system
+build_simple_secondkind_system
+solve_simple_secondkind_sparse
+build_section522_operator
+build_section522_rhs
+solve_section522_k100_sparse
+```
+
+Diagnostics and output:
+
+```text
+safe_nnz
+safe_bandwidth
+safe_density
+assert_no_dense_matrix
+operator_summary
+result_summary
+write_results_csv
+append_result_csv
+```
+
+Constants:
+
+```text
+SECTION522_K
+SECTION522_ACCEPTANCE_N
+SECTION522_ACCEPTANCE_KERNELDEPTH
+```
+
+## RHS Projection
+
+`rhs_projection.jl` provides fixed-length shifted Jacobi RHS coefficient construction:
+
+```julia
+rhs, info = build_go_rhs_coefficients(f, N; alpha, beta, method=:fixed_gauss_jacobi)
+```
+
+The returned coefficient vector has length `N`. `info` records:
+
+```text
+method
+basis
+coefficient_length
+tail_norm
+validation_error
 status
 notes
 ```
 
-`build_section522_rhs` projects the right-hand side into `Jacobi(1,2,0..1)`. `build_section522_operator` constructs the strict-band raw Volterra operator, applies the reflected/lowered/raised physical chain, builds the derivative body, and assembles the semi-banded sparse system. `solve_section522_k100_sparse` combines RHS, operator, exact residual, sparse solve, and physical-grid error validation.
+The default path is the fixed-`N` ApproxFun/Jacobi coefficient path already used by the golden workflow. `method=:exact_polynomial` accepts monomial coefficients for exact manufactured RHS tests. `method=:adaptive_approxfun` is kept as a verification mode, not as the formal sparse benchmark path.
 
-The files that must migrate together are:
+## Triangular Kernel Projection
+
+`triangular_kernel_projection.jl` owns:
 
 ```text
-src/SparseGOWorkflow111.jl
-src/clenshaw.jl
-src/triQEgen.jl
-src/triVolterraFullKernel_strictband.jl
-src/workflows.jl
-Project.toml dependency entries for the listed packages
+TriangularKernelPlan
+TriangularKernelCoefficients
+precompute_triangular_kernel_plan
+sample_triangular_kernel_values
+project_triangular_kernel_coeffs_from_values
+triangular_kernel_coeffs_from_plan
 ```
 
-The implementation helper functions in `clenshaw.jl`, `triQEgen.jl`, and `triVolterraFullKernel_strictband.jl` are intentionally not exported as stable API in this standalone package. They are implementation details for the public workflow functions above. If the workflow is merged into a larger project, keep those helper functions in an internal namespace or submodule, and expose only the workflow-level functions until additional low-level APIs are deliberately designed.
+The plan stores the `JacobiTriangle` basis block, transform grid, Clenshaw recurrence data, requested `kerneldepth`, realized coefficient depth, and `flip`. With `flip=true`, samples use `K(1-X,Y)`; otherwise samples use `K(X,Y)`. Projection returns triangular coefficients used directly by the strict-band Volterra builder and never forms a dense Volterra operator.
 
-Dense fallback is avoided by these rules:
+## Operators
 
-- do not call `Matrix(A)`, `Array(A)`, or `collect(A)` on operators or systems;
-- keep raw Volterra and body operators as `BandedMatrix`;
-- assemble tau/evaluation rows and body rows directly into `SparseMatrixCSC` from triplets;
-- use `safe_nnz`, `safe_bandwidth`, and `safe_density` for diagnostics;
-- solve the final semi-banded sparse system directly with `A \ b`.
+`operators.jl` contains the low-level sparse/banded operators:
 
-CSV output is available without heavy dependencies:
+- `triQgen`: triangle integration `Q_y`;
+- `triEygenP01`: extension `E_y` from `Jacobi(0,1,0..1)` to the triangle basis;
+- `triQEygenP01`: diagonal `Q_y E_y`;
+- `WLoweringP01P00`: weighted lowering that absorbs `(1-x)` and maps `Jacobi(0,1)` to `Jacobi(0,0)`;
+- `reflectPabtoPba`: diagonal reflection from `P^(a,b)(1-x)` coefficients to `P^(b,a)(x)` coefficients;
+- `apply_conversion_00_to_01_strictband`: second-kind conversion chain;
+- `apply_conversion_00_to_12_strictband`: first-derivative VIDE conversion chain;
+- `build_derivative_P01_to_P12`: derivative `Jacobi(0,1) -> Jacobi(1,2)`;
+- `build_initial_evaluation_row`: coefficient row for `u(0)`.
 
-```julia
-result = solve_section522_k100_sparse(N=128, kerneldepth=12)
-write_results_csv("section522_results.csv", (result,))
-append_result_csv("section522_results.csv", result)
+Docstrings on these functions record the basis mapping.
+
+## Strict-Band Volterra
+
+`volterra_strictband.jl` owns the operator-valued Clenshaw recurrence and strict-band multiplication kernels. For a triangular coefficient object, it builds:
+
+```text
+Vraw = Q_y K(1-X,Y) E_y
 ```
 
-When merging into a larger project, keep example scripts thin: they should set parameters, call `solve_*` or `build_*` APIs, and print or write results. Mathematical assembly should remain in `src/workflows.jl` or the corresponding library module.
+The second-kind physical operator is:
 
-## Stable Public API
+```text
+Vphys = S_00_to_01 * R * WLowering * Vraw
+```
 
-`build_simple_secondkind_system`: builds the manufactured `K=1` second-kind Volterra raw operator, physical Volterra operator, banded system, RHS coefficients, and exact coefficients without dense conversion.
+The Section 5.2.2 VIDE Volterra term is:
 
-`solve_simple_secondkind_sparse`: solves the manufactured `K=1` second-kind sparse problem and returns validation errors, sparse/banded diagnostics, timings, status, and notes.
+```text
+Vvide = S_00_to_12 * R * WLowering * Vraw
+```
 
-`build_section522_operator`: constructs the Section 5.2.2 strict-band raw Volterra operator, reflected/lowered/raised Volterra term, derivative body, and final semi-banded sparse system.
+Banded left multiplication, tridiagonal left/right multiplication, and banded axpy are implemented by band scans. The formal code path avoids dense operator construction.
 
-`build_section522_rhs`: projects the Section 5.2.2 RHS into the final `Jacobi(1,2,0..1)` output basis and returns coefficients plus validation metadata.
+## Equation Assembly
 
-`solve_section522_k100_sparse`: solves the Section 5.2.2 VIDE for `k=100` by combining the public RHS and operator builders, exact residual diagnostics, sparse solve, and physical-grid error check.
+`equation_assembly.jl` separates equation semantics from Volterra construction:
 
-`safe_bandwidth`: reports actual lower/upper nonzero bandwidth for `BandedMatrix` or `SparseMatrixCSC` without dense materialization.
+```text
+u + int_0^x K(x,y)u(y)dy = f       -> A = I + Vphys
+u = g + int_0^x K(x,y)u(y)dy       -> A = I - Vphys
+u' - int_0^x K(x,y)u(y)dy = g      -> A = [u(0) row; D - Vvide body rows]
+```
 
-`safe_nnz`: counts nonzero entries in `BandedMatrix` or `SparseMatrixCSC` without converting to dense storage.
+`assemble_semibanded_system` inserts the evaluation row into sparse triplets and scans only the declared band of the body operator. The final system is `SparseMatrixCSC`; the body operator remains `BandedMatrix`. Full bandwidth and body bandwidth are reported separately because the top evaluation row makes the final upper bandwidth close to `N-1`.
 
-`safe_density`: computes `safe_nnz(A) / prod(size(A))` for sparse or banded matrices.
+## Diagnostics
 
-`write_results_csv`: writes one or more structured workflow results to CSV using the stable public result fields.
+`diagnostics.jl` provides `safe_nnz`, `safe_bandwidth`, and `safe_density`.
 
-`append_result_csv`: appends a single structured workflow result to CSV and creates the header if needed.
+- For `BandedMatrix`, diagnostics scan only the structural band.
+- For `SparseMatrixCSC`, diagnostics walk `colptr`, `rowval`, and `nzval`.
+- Generic dense inputs are rejected by `assert_no_dense_matrix`.
 
-`print_section522_result`: prints the detailed Section 5.2.2 result, including residuals, storage diagnostics, and timings.
+CSV helpers write stable workflow result fields without introducing plotting or tabular dependencies.
 
-`print_section522_summary`: prints a CSV-style one-line Section 5.2.2 summary.
+## Workflows and Examples
+
+`workflows.jl` is intentionally high-level. It contains only:
+
+```text
+build_simple_secondkind_system
+solve_simple_secondkind_sparse
+build_section522_operator
+build_section522_rhs
+solve_section522_k100_sparse
+print_section522_result
+print_section522_summary
+```
+
+Examples are thin wrappers. They set parameters, call public workflow functions, and print results.
+
+## Text Workflow Diagram
+
+```text
+RHS:
+f(x) -> shifted Jacobi projection -> rhs_coeff
+
+Kernel:
+K(x,y) -> triangular sampling -> triangle coefficients -> Vraw
+
+Volterra:
+Vraw -> WLowering -> reflection -> conversion -> Vphys
+
+Second-kind:
+A = I + Vphys
+
+VIDE:
+A = [u(0) row; D - converted Vphys body rows]
+
+Solve:
+A \ rhs -> coefficients -> physical evaluation -> error/residual
+```
+
+## Tests
+
+The test suite covers:
+
+```text
+test_rhs_projection.jl
+test_triangular_kernel_projection.jl
+test_operators.jl
+test_simple_secondkind_sparse.jl
+test_section522_k100_sparse.jl
+test_dense_path_scan.jl
+```
+
+Run:
+
+```powershell
+D:\Julia\Julia-1.11.1\bin\julia.exe --project=others/GutlebOlver -e "using Pkg; Pkg.test()"
+```
 
 ## Golden Regression
 
-The reference Section 5.2.2 `k=100` result is stored in:
+The protected golden file is:
 
 ```text
 test/golden_section522_k100.toml
@@ -154,168 +272,37 @@ test/golden_section522_k100.toml
 It records:
 
 ```text
-k = 100
-N = 128
-kerneldepth = 12
-rhs_validation_error
-tau_residual
-body_residual_relative
-max_abs_error
-raw/body/final storage type
-raw/body/final nnz
-raw/body/final bandwidth
-density
-```
-
-The package test reads this TOML file. Floating-point diagnostics use
-`atol=1e-10, rtol=1e-8`; storage type, nnz, and bandwidth must match exactly.
-
-## Section 5.2.2 Equation
-
-The standalone example solves
-
-```math
-u'(x) - \int_0^x y\exp(x^2)u(y)\,dy = g(x,100),
-\qquad u(0)=0,
-```
-
-with exact solution
-
-```math
-u(x)=\arctan(100x).
-```
-
-The right-hand side is projected to `Jacobi(1,2,0..1)`, the final output basis for a first derivative of a `Jacobi(0,1,0..1)` solution.
-
-## Operator Chain
-
-For `int_0^x`, kernel coefficients are built with `flip=true`, so the raw strict-band Volterra operator is
-
-```math
-V_{\rm raw} = Q_y K(1-X,Y) E_y.
-```
-
-The physical VIDE body is
-
-```math
-D^{(1)} - S_{00\to12} R L V_{\rm raw}.
-```
-
-The final system has one dense initial-condition row and `N-1` banded body rows:
-
-```math
-A =
-\begin{bmatrix}
-E_0 \\
-B_{1:N-1,1:N}
-\end{bmatrix}.
-```
-
-It is assembled directly into `SparseMatrixCSC` from triplets.
-
-## Run
-
-```powershell
-julia --project=. -e "using Pkg; Pkg.instantiate(); Pkg.test()"
-julia --project=. examples/solve_section522_k100_sparse.jl
-```
-
-Acceptance parameters:
-
-```text
 N = 128
 kerneldepth = 12
 k = 100
+rhs_validation_error = 1.901613757127052e-6
+tau_residual = 4.70264109582792e-11
+body_residual_relative = 1.1167327725282074e-7
+max_abs_error = 9.404194067919036e-8
+final_system_nnz = 3388
+final_system_bandwidth = (13, 127)
 ```
 
-Acceptance criteria:
+The golden test uses `atol=1e-10, rtol=1e-8` for floating-point diagnostics and exact equality for storage type, nnz, and bandwidth.
 
-```text
-rhs_validation_error <= 1e-5
-body_residual_relative <= 1e-6
-physical-grid max_abs_error <= 1e-6
-final system is sparse/semi-banded
-```
+## Migration Checklist
 
-## Julia 1.11.1 Compatibility
+1. Copy the full `src/` layout, not only `workflows.jl`.
+2. Keep `Project.toml` dependencies for ApproxFun, BandedMatrices, BlockArrays, BlockBandedMatrices, LazyArrays, MultivariateOrthogonalPolynomials, SparseArrays, SpecialFunctions, Printf, TOML, and Test.
+3. Keep examples as thin public-API wrappers.
+4. Keep `test/golden_section522_k100.toml` unchanged unless a deliberate algorithm change is reviewed.
+5. Run `Pkg.test()` after migration.
+6. Run the dense-path scan test before accepting sparse benchmark changes.
+7. Preserve the distinction between body bandwidth and final-system bandwidth.
 
-Verified command:
+## Dense Path Policy
 
-```powershell
-& 'D:\Julia\Julia-1.11.1\bin\julia.exe' --project=SparseGOWorkflow111 -e "using InteractiveUtils; versioninfo()"
-```
+Formal sparse code must not call dense materialization helpers on operators or systems. The dense-path test scans Julia files in `src`, `examples`, and `test` for direct `Matrix(`, `Array(`, or `collect(` calls. Occurrences in prose documentation are allowed but should not be copied into formal code paths.
 
-Key version:
+## Verified Result
 
-```text
-Julia Version 1.11.1
-```
+Current `Pkg.test()` passes under Julia 1.11.1 after the modular refactor. The Section 5.2.2 golden result remains:
 
-The standalone project uses these direct dependencies:
-
-```text
-ApproxFun
-BandedMatrices
-BlockArrays
-BlockBandedMatrices
-LazyArrays
-MultivariateOrthogonalPolynomials
-SpecialFunctions
-LinearAlgebra
-Printf
-SparseArrays
-Test
-TOML
-```
-
-`FastTransforms` and `ContinuumArrays` are pulled as transitive dependencies by the orthogonal-polynomial stack. The Julia 1.11-compatible path avoids declaring them as direct dependencies in this local project. The triangular transform planner is accessed through the loaded `MultivariateOrthogonalPolynomials.ContinuumArrays` binding, and the kernel sampler accepts both the older two-grid form and the current one-grid `SVector{2}` form.
-
-## Verified k=100 Result
-
-Command:
-
-```powershell
-& 'D:\Julia\Julia-1.11.1\bin\julia.exe' --project=SparseGOWorkflow111 SparseGOWorkflow111\examples\solve_section522_k100_sparse.jl
-```
-
-Result:
-
-| k | N | kerneldepth | rhs_validation_error | body_residual_relative | max_abs_error | raw type | body type | final system | nnz | lower bw | upper bw | density |
-|---:|---:|---:|---:|---:|---:|---|---|---|---:|---:|---:|---:|
-| 100 | 128 | 12 | 1.901613757127052e-6 | 1.1167327725282074e-7 | 9.404194067919036e-8 | BandedMatrix | BandedMatrix | SparseMatrixCSC | 3388 | 13 | 127 | 0.206787109375 |
-
-Detailed matrix data:
-
-```text
-raw V      : BandedMatrix nnz=2812 bw=(11,11) density=1.716309e-01
-body       : BandedMatrix nnz=3273 bw=(12,14) density=1.997681e-01
-system     : SparseMatrixCSC nnz=3388 bw=(13,127) density=2.067871e-01
-```
-
-Detailed timings from the verified run:
-
-```text
-rhs                     = 1.611964e-01 s
-kernel coefficients     = 9.313016e+00 s
-Volterra construction   = 1.153221e+00 s
-system assembly         = 3.707160e-02 s
-solve                   = 3.735000e-04 s
-evaluation              = 5.195000e-04 s
-total                   = 1.067928e+01 s
-```
-
-## Tests
-
-Command:
-
-```powershell
-& 'D:\Julia\Julia-1.11.1\bin\julia.exe' --project=SparseGOWorkflow111 -e "using Pkg; Pkg.instantiate(); Pkg.test()"
-```
-
-Result:
-
-```text
-simple second-kind sparse solve      | 10 pass
-Section 5.2.2 k=100 sparse solve     | 30 pass
-SparseGOWorkflow111 tests passed
-```
+| N | kerneldepth | status | rhs error | body residual | max abs error | raw nnz/bw | body nnz/bw | final nnz/bw |
+|---:|---:|---|---:|---:|---:|---|---|---|
+| 128 | 12 | pass | 1.901613757127052e-6 | 1.1167327725282074e-7 | 9.404194067919036e-8 | 2812/(11,11) | 3273/(12,14) | 3388/(13,127) |

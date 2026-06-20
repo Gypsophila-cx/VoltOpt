@@ -1,0 +1,21 @@
+name = "SparseGOWorkflow111"
+uuid = "e6a5b0c1-44e6-4b63-9a4c-0d55f80e7c11"
+authors = ["SparseGOWorkflow111 maintainers"]
+version = "0.1.0"
+
+[deps]
+ApproxFun = "28f2ccd6-bb30-5033-b560-165f7b14dc2f"
+BandedMatrices = "aae01518-5342-5314-be14-df237901396f"
+BlockArrays = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
+BlockBandedMatrices = "ffab5731-97b5-5995-9138-79e8c1846df0"
+LazyArrays = "5078a376-72f3-5289-bfd5-ec5146d43c02"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MultivariateOrthogonalPolynomials = "4f6956fd-4f93-5457-9149-7bfc4b2ce06d"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
+
+[compat]
+julia = "1.11"

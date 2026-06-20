@@ -8,11 +8,11 @@ This status records the standalone validation of the copied Gutleb-Olver sparse 
 
 ## Source And Placement
 
-- Copy source: `SparseGOWorkflow111`.
+- Copy source: modular Gutleb--Olver sparse workflow.
 - Current placement: `others/GutlebOlver`.
-- Current package name: `SparseGOWorkflow111`.
-- Current module name: `SparseGOWorkflow111`.
-- Renaming was not required for this validation pass.
+- Current package name: `GutlebOlver`.
+- Current module name: `GutlebOlver`.
+- The package was renamed from the copied `SparseGOWorkflow111` source during the final modularization pass.
 
 ## Checked Structure
 
@@ -54,10 +54,14 @@ D:\Julia\Julia-1.11.1\bin\julia.exe --project=others/GutlebOlver -e "using Pkg; 
 
 Result: passed.
 
-Test summaries:
+Current modular test summaries:
 
+- `RHS projection`: 23 passed, 23 total.
+- `triangular kernel projection`: 17 passed, 17 total.
+- `basic sparse operators`: 12 passed, 12 total.
 - `simple second-kind sparse solve`: 10 passed, 10 total.
-- `Section 5.2.2 k=100 sparse solve`: 30 passed, 30 total.
+- `Section 5.2.2 k=100 sparse solve`: 31 passed, 31 total.
+- `dense path scan`: 1 passed, 1 total.
 
 Note: the initial sandboxed run could not write Julia's user depot log file at `C:\Users\chenx\.julia\logs\manifest_usage.toml.pid`. The same command passed when run with normal Julia depot write access.
 
@@ -114,8 +118,30 @@ An earlier broad substring scan matched sparse or banded constructor names such 
 
 ## Public API
 
-The following exported API names are present and were checked with `names(SparseGOWorkflow111)`:
+The following exported API names are present and were checked with `names(GutlebOlver)`:
 
+- `build_go_rhs_coefficients`
+- `validate_rhs_projection`
+- `precompute_triangular_kernel_plan`
+- `sample_triangular_kernel_values`
+- `project_triangular_kernel_coeffs_from_values`
+- `triangular_kernel_coeffs_from_plan`
+- `triVolterraFullKernelOpP01_strictband_from_coeffs`
+- `build_secondkind_volterra_strictband`
+- `build_secondkind_system_strictband`
+- `build_VIDE_LHS_sec522_strictband`
+- `triQgen`
+- `triEygenP01`
+- `triQEygenP01`
+- `WLoweringP01P00`
+- `reflectPabtoPba`
+- `apply_reflect_lowering_strictband`
+- `apply_conversion_00_to_01_strictband`
+- `apply_conversion_00_to_12_strictband`
+- `build_derivative_P01_to_P12`
+- `build_initial_evaluation_row`
+- `assemble_semibanded_system`
+- `assemble_section522_semibanded_system`
 - `build_simple_secondkind_system`
 - `solve_simple_secondkind_sparse`
 - `build_section522_operator`
@@ -135,7 +161,7 @@ The following exported API names are present and were checked with `names(Sparse
 Direct API smoke test:
 
 ```powershell
-D:\Julia\Julia-1.11.1\bin\julia.exe --project=others/GutlebOlver -e "using SparseGOWorkflow111; r = solve_section522_k100_sparse(N=128, kerneldepth=12); println(r.max_abs_error)"
+D:\Julia\Julia-1.11.1\bin\julia.exe --project=others/GutlebOlver -e "using GutlebOlver; r = solve_section522_k100_sparse(N=128, kerneldepth=12); println(r.max_abs_error)"
 ```
 
 Output:
@@ -149,22 +175,32 @@ Output:
 After this standalone subproject remains stable, the next integration step is to add a VoltOpt benchmark adapter that calls the existing public API from `others/GutlebOlver` without modifying the strict-band or semi-banded sparse implementation. Suggested order:
 
 1. Add an explicit benchmark entry point in the VoltOpt benchmark layer.
-2. Keep `others/GutlebOlver` as an independent Julia project unless package renaming becomes necessary.
+2. Keep `others/GutlebOlver` as an independent Julia project using module `GutlebOlver`.
 3. Compare VoltOpt ex1/ex4 benchmark output against the preserved Section 5.2.2 k=100 golden result.
 4. Add only adapter-level tests first, leaving the copied sparse workflow tests as the authoritative standalone regression.
 
 ## Stable Files Not To Change In This Phase
 
-The following files are treated as stable for this validation phase and should not be changed when wiring benchmarks unless a separate reviewed task requires it:
+The following files are treated as stable for the modularized sparse workflow and should not be changed when wiring benchmarks unless a separate reviewed task requires it:
 
 - `others/GutlebOlver/Project.toml`
 - `others/GutlebOlver/Manifest.toml`
-- `others/GutlebOlver/src/SparseGOWorkflow111.jl`
+- `others/GutlebOlver/src/GutlebOlver.jl`
+- `others/GutlebOlver/src/rhs_projection.jl`
+- `others/GutlebOlver/src/triangular_kernel_projection.jl`
+- `others/GutlebOlver/src/operators.jl`
+- `others/GutlebOlver/src/volterra_strictband.jl`
+- `others/GutlebOlver/src/equation_assembly.jl`
+- `others/GutlebOlver/src/diagnostics.jl`
 - `others/GutlebOlver/src/workflows.jl`
-- `others/GutlebOlver/src/triVolterraFullKernel_strictband.jl`
 - `others/GutlebOlver/src/clenshaw.jl`
-- `others/GutlebOlver/src/triQEgen.jl`
 - `others/GutlebOlver/test/runtests.jl`
+- `others/GutlebOlver/test/test_rhs_projection.jl`
+- `others/GutlebOlver/test/test_triangular_kernel_projection.jl`
+- `others/GutlebOlver/test/test_operators.jl`
+- `others/GutlebOlver/test/test_simple_secondkind_sparse.jl`
 - `others/GutlebOlver/test/test_section522_k100_sparse.jl`
+- `others/GutlebOlver/test/test_dense_path_scan.jl`
 - `others/GutlebOlver/test/golden_section522_k100.toml`
 - `others/GutlebOlver/examples/solve_section522_k100_sparse.jl`
+- `others/GutlebOlver/examples/solve_simple_secondkind_sparse.jl`

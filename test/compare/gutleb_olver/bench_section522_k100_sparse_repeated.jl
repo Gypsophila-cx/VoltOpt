@@ -7,7 +7,7 @@ const REPEATS = max(5, parse(Int, get(ENV, "GUTLEB_OLVER_REPEATS", "5")))
 
 Pkg.activate(joinpath(ROOT, "others", "GutlebOlver"))
 
-using SparseGOWorkflow111
+using GutlebOlver
 
 const CSV_COLUMNS = (
     :N,
@@ -44,7 +44,7 @@ function median_time(values)
     sorted = sort(values)
     n = length(sorted)
     n == 0 && throw(ArgumentError("cannot compute median of an empty vector"))
-    return isodd(n) ? sorted[(n + 1) ÷ 2] : (sorted[n ÷ 2] + sorted[n ÷ 2 + 1]) / 2
+    return isodd(n) ? sorted[div(n + 1, 2)] : (sorted[div(n, 2)] + sorted[div(n, 2) + 1]) / 2
 end
 
 mean_time(values) = sum(values) / length(values)

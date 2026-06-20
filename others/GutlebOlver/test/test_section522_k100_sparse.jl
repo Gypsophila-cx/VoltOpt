@@ -1,4 +1,4 @@
-using SparseGOWorkflow111
+using GutlebOlver
 using Test
 using TOML
 
@@ -10,22 +10,6 @@ golden_float(key) = Float64(GOLDEN_SECTION522_K100[key])
 
 function test_golden_float(actual, key)
     @test isapprox(actual, golden_float(key); atol=1e-10, rtol=1e-8)
-end
-
-@testset "simple second-kind sparse solve" begin
-    built = build_simple_secondkind_system(; N=32)
-    row = solve_simple_secondkind_sparse(; N=32)
-
-    @test row.raw_operator_type == "BandedMatrix"
-    @test row.body_operator_type == "BandedMatrix"
-    @test row.final_system_type == "BandedMatrix"
-    @test safe_nnz(built.system) == row.final_system_nnz
-    @test safe_bandwidth(built.system) == row.full_bandwidth
-    @test safe_density(built.system) == row.density
-    @test row.rhs_validation_error < 1e-13
-    @test row.residual_relative < 1e-13
-    @test row.max_abs_error < 1e-13
-    @test row.status == "pass"
 end
 
 @testset "Section 5.2.2 k=100 sparse solve" begin
@@ -73,6 +57,7 @@ end
     @test row.final_system_type == golden["final_system_type"]
     @test row.final_system_nnz == Int(golden["final_system_nnz"])
     @test row.full_bandwidth == golden_bandwidth("final_system_bandwidth")
+    @test row.final_system_bandwidth == golden_bandwidth("final_system_bandwidth")
 
     csv_path = tempname()
     write_results_csv(csv_path, (row,))

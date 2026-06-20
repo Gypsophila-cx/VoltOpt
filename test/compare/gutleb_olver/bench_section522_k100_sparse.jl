@@ -6,7 +6,7 @@ const OUTPUT_CSV = joinpath(@__DIR__, "data", "section522_k100_sparse_results.cs
 
 Pkg.activate(joinpath(ROOT, "others", "GutlebOlver"))
 
-using SparseGOWorkflow111
+using GutlebOlver
 
 const CSV_COLUMNS = (
     :N,

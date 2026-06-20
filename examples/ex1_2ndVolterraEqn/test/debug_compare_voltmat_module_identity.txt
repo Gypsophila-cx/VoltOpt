@@ -1,0 +1,66 @@
+debug_compare_voltmat_module_identity
+N = 1000
+tol = 2.220446049250313e-16
+
+Rows:
+- source=aging_direct_include
+  module_name=Main.VoltMat_Cheb
+  module_objectid=1576097249654064702
+  function_objectid=18446744072063371559
+  parent_module=Main.VoltMat_Cheb
+  method_info=kwcall(::NamedTuple, ::typeof(Main.VoltMat_Cheb.voltmat_cheb), K, N::Int64) @ Main.VoltMat_Cheb D:\Projects\VoltOpt\src\VoltMat\voltmat_cheb.jl:1594
+  K_type=typeof(K)
+  K_method=K(x, y) @ Main D:\Projects\VoltOpt\examples\ex1_2ndVolterraEqn\debug_compare_voltmat_module_identity.jl:105
+  sample_max_abs_diff_vs_aging_K=0.0
+  t_VK=3.3548058
+  VK_type=SparseMatrixCSC{Float64, Int64}
+  size=1000x1000
+  nnz=339793
+  status=success
+  notes=Parent process direct include of src/VoltMat/voltmat_cheb.jl using the requested aging-style K.
+- source=common_include
+  module_name=Main.VoltMat_Cheb
+  module_objectid=1576097249654064702
+  function_objectid=18446744073108280673
+  parent_module=Main.VoltMat_Cheb
+  method_info=kwcall(::NamedTuple, ::typeof(Main.VoltMat_Cheb.voltmat_cheb), K, N::Int64) @ Main.VoltMat_Cheb D:\Projects\VoltOpt\src\VoltMat\voltmat_cheb.jl:1594
+  K_type=typeof(aging_K)
+  K_method=aging_K(x, y) @ Main none:12
+  sample_max_abs_diff_vs_aging_K=0.0
+  t_VK=33.870387
+  VK_type=SparseMatrixCSC{Float64, Int64}
+  size=1000x1000
+  nnz=339793
+  status=success
+  notes=Child process include of ex1_2nd_volterra_common.jl using aging_K.
+- source=common_ex1_kernel
+  module_name=Main.VoltMat_Cheb
+  module_objectid=1576097249654064702
+  function_objectid=18446744073108280673
+  parent_module=Main.VoltMat_Cheb
+  method_info=kwcall(::NamedTuple, ::typeof(Main.VoltMat_Cheb.voltmat_cheb), K, N::Int64) @ Main.VoltMat_Cheb D:\Projects\VoltOpt\src\VoltMat\voltmat_cheb.jl:1594
+  K_type=typeof(ex1_kernel)
+  K_method=ex1_kernel(x, y) @ Main D:\Projects\VoltOpt\examples\ex1_2ndVolterraEqn\ex1_2nd_volterra_common.jl:95
+  sample_max_abs_diff_vs_aging_K=0.5765081557899561
+  t_VK=3.1291514
+  VK_type=SparseMatrixCSC{Float64, Int64}
+  size=1000x1000
+  nnz=56553
+  status=success
+  notes=Child process include of ex1_2nd_volterra_common.jl using common ex1_kernel.
+
+Judgement:
+1. aging_direct_include and common_include method_info identical: true
+2. module_name identical: true
+3. module_objectid identical: true
+4. function_objectid identical: false
+5. parent_module identical: true
+6. t_VK ratio max/min: 10.096
+7. common_ex1_kernel sample_max_abs_diff_vs_aging_K: 0.5765081557899561
+
+Interpretation:
+- aging_direct_include and common_include resolve to the same source method string.
+- The common row is collected in a child Julia process to avoid replacing Main.VoltMat_Cheb in the parent process.
+- Therefore module_objectid/function_objectid are process-local object identities; equality across these two rows is not expected and cannot prove shared object identity.
+- If method_info is identical but objectids differ, the scripts are using independent module instances loaded from the same source method.
+- If t_VK differs while method_info is identical, check K_type, kernel values, package/global state, and process-local module state.

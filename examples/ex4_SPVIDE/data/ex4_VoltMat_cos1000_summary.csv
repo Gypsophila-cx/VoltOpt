@@ -1,0 +1,2 @@
+method,N,N_ref,omega,kappa,true_grid_error,cauchy_coeff_error,cauchy_grid_error,residual_inf,nnzA,nnzVK,build_sec,solve_sec,total_sec,exact_check_N,exact_check_res_inf,exact_check_rel_res,status
+VoltMat,2000,2020,50.0,1000.0,6.621370118864434e-13,1.6911645694950295e-13,9.265366252009244e-13,1.1368683772161603e-13,285955,280008,0.6594549,0.0966865,0.7561414,1000,9.635788054267583e-12,6.488809712515217e-14,ok
