@@ -1,18 +1,8 @@
-% ex4_plot.m
-%
-% Plot error and timing curves for ex4_VoltMat.jl.
-%
-% Expected input:
-%   data/ex4_VoltMat_error.csv
-%   data/ex4_VoltMat_time.csv
-%
-% Output:
-%   figures/ex4_VoltMat_error.pdf
-%   figures/ex4_VoltMat_error.png
-%   figures/ex4_VoltMat_time.pdf
-%   figures/ex4_VoltMat_time.png
+% plot_ex4_GO_depth_error.m
+% Plot max error vs kernel depth for Float64 GO and
+% BigFloat-construction-only GO.
 
-clear; clc;
+clear; clc; close all;
 
 %% Paths
 scriptDir = fileparts(mfilename('fullpath'));
@@ -27,91 +17,88 @@ if ~exist(figDir, 'dir')
     mkdir(figDir);
 end
 
-errorFile = fullfile(dataDir, 'ex4_VoltMat_error.csv');
-timeFile  = fullfile(dataDir, 'ex4_VoltMat_time.csv');
+float64File = fullfile(dataDir, 'ex4_GO_depth_sweep.csv');
+bigFile     = fullfile(dataDir, 'ex4_GO_depth_sweep_bigfloat_construct_only.csv');
 
-if ~isfile(errorFile)
-    error('Cannot find error file: %s', errorFile);
+if ~isfile(float64File)
+    error('Cannot find file: %s', float64File);
 end
 
-if ~isfile(timeFile)
-    error('Cannot find time file: %s', timeFile);
+if ~isfile(bigFile)
+    error('Cannot find file: %s', bigFile);
 end
 
 %% Read data
-E = readtable(errorFile);
-T = readtable(timeFile);
+T64  = readtable(float64File);
+Tbig = readtable(bigFile);
 
-%% Global plot settings
-set(groot, 'defaultAxesFontName', 'Times New Roman');
-set(groot, 'defaultTextFontName', 'Times New Roman');
-set(groot, 'defaultAxesFontSize', 14);
-set(groot, 'defaultLineLineWidth', 1.8);
+% Keep successful rows if status column exists
+if ismember('status', T64.Properties.VariableNames)
+    T64 = T64(strcmp(string(T64.status), "ok"), :);
+end
 
-%% Error curve
-fig1 = figure('Color', 'w');
-semilogy(E.N, E.err_inf, '-', 'LineWidth', 1.8);
+if ismember('status', Tbig.Properties.VariableNames)
+    Tbig = Tbig(strcmp(string(Tbig.status), "ok"), :);
+end
 
-xlabel('$N$', 'Interpreter', 'latex');
-ylabel('$\|u_N-u\|_{\infty}$', 'Interpreter', 'latex');
-title('Cauchy / exact error', 'Interpreter', 'latex');
+%% Split BigFloat construction-only data
+T128 = Tbig(Tbig.precision_bits == 128, :);
+T256 = Tbig(Tbig.precision_bits == 256, :);
 
-xlim([min(E.N), max(E.N)]);
-box on;
+%% Sort by depth
+T64  = sortrows(T64,  'depth');
+T128 = sortrows(T128, 'depth');
+T256 = sortrows(T256, 'depth');
+
+%% Plot
+fig = figure('Color', 'w');
+hold on;
+
+semilogy(T64.depth,  T64.max_error,  '-',  'LineWidth', 1.8);
+semilogy(T128.depth, T128.max_error, '--', 'LineWidth', 1.8);
+semilogy(T256.depth, T256.max_error, '-.', 'LineWidth', 1.8);
+
+xlabel('Kernel expansion depth', 'Interpreter', 'latex');
+ylabel('Maximum error', 'Interpreter', 'latex');
+
+legend( ...
+    'Float64 construction', ...
+    'BigFloat 128-bit construction + Float64 solve', ...
+    'BigFloat 256-bit construction + Float64 solve', ...
+    'Location', 'best', ...
+    'Interpreter', 'latex' ...
+);
+
+set(gca, ...
+    'FontSize', 12, ...
+    'TickLabelInterpreter', 'latex', ...
+    'YScale', 'log' ...
+);
+
 grid on;
-
-set(gca, 'XScale', 'linear');
-set(gca, 'YScale', 'log');
-
-exportgraphics(fig1, fullfile(figDir, 'ex4_VoltMat_error.pdf'), ...
-    'ContentType', 'vector');
-exportgraphics(fig1, fullfile(figDir, 'ex4_VoltMat_error.png'), ...
-    'Resolution', 300);
-
-%% Timing curve: total time
-fig2 = figure('Color', 'w');
-plot(T.N, T.total_sec, '-', 'LineWidth', 1.8);
-
-xlabel('$N$', 'Interpreter', 'latex');
-ylabel('Time (sec)', 'Interpreter', 'latex');
-title('Total computational time', 'Interpreter', 'latex');
-
-xlim([min(T.N), max(T.N)]);
 box on;
-grid on;
 
-set(gca, 'XScale', 'linear');
+title('GO depth sweep for oscillatory Volterra equation', ...
+    'Interpreter', 'latex');
 
-exportgraphics(fig2, fullfile(figDir, 'ex4_VoltMat_time.pdf'), ...
-    'ContentType', 'vector');
-exportgraphics(fig2, fullfile(figDir, 'ex4_VoltMat_time.png'), ...
-    'Resolution', 300);
+%% Save
+pdfFile = fullfile(figDir, 'ex4_GO_depth_max_error.pdf');
+pngFile = fullfile(figDir, 'ex4_GO_depth_max_error.png');
 
-%% Timing components
-fig3 = figure('Color', 'w');
-plot(T.N, T.op_sec, '-', 'LineWidth', 1.8); hold on;
-plot(T.N, T.sys_sec, '-', 'LineWidth', 1.8);
-plot(T.N, T.rhs_sec, '-', 'LineWidth', 1.8);
-plot(T.N, T.solve_sec, '-', 'LineWidth', 1.8);
-plot(T.N, T.total_sec, '-', 'LineWidth', 2.2);
+exportgraphics(fig, pdfFile, 'ContentType', 'vector');
+exportgraphics(fig, pngFile, 'Resolution', 300);
 
-xlabel('$N$', 'Interpreter', 'latex');
-ylabel('Time (sec)', 'Interpreter', 'latex');
-title('Timing components', 'Interpreter', 'latex');
+fprintf('Saved figure:\n  %s\n  %s\n', pdfFile, pngFile);
 
-legend({'VoltMat assembly', 'System assembly', 'RHS', 'Solve', 'Total'}, ...
-    'Interpreter', 'latex', ...
-    'Location', 'northwest');
+%% Print best depth information
+[err64, idx64] = min(T64.max_error);
+[err128, idx128] = min(T128.max_error);
+[err256, idx256] = min(T256.max_error);
 
-xlim([min(T.N), max(T.N)]);
-box on;
-grid on;
-
-set(gca, 'XScale', 'linear');
-
-exportgraphics(fig3, fullfile(figDir, 'ex4_VoltMat_time_components.pdf'), ...
-    'ContentType', 'vector');
-exportgraphics(fig3, fullfile(figDir, 'ex4_VoltMat_time_components.png'), ...
-    'Resolution', 300);
-
-fprintf('Figures saved to:\n  %s\n', figDir);
+fprintf('\nBest errors:\n');
+fprintf('  Float64 construction: depth = %d, max_error = %.6e\n', ...
+    T64.depth(idx64), err64);
+fprintf('  BigFloat 128-bit construction + Float64 solve: depth = %d, max_error = %.6e\n', ...
+    T128.depth(idx128), err128);
+fprintf('  BigFloat 256-bit construction + Float64 solve: depth = %d, max_error = %.6e\n', ...
+    T256.depth(idx256), err256);
