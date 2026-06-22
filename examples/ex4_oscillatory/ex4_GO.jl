@@ -1,11 +1,11 @@
 using LinearAlgebra
 using Printf
 
-const SCRIPT_DIR = @__DIR__7
+const SCRIPT_DIR = @__DIR__
 const PROJECT_ROOT = normpath(joinpath(SCRIPT_DIR, "..", ".."))
 const GUTLEB_OLVER_PROJECT = joinpath(PROJECT_ROOT, "others", "GutlebOlver")
 const DATA_DIR = joinpath(SCRIPT_DIR, "data")
-const OUTPUT_CSV = joinpath(DATA_DIR, "ex4_GO_depth_sweep.csv")
+const OUTPUT_CSV = joinpath(DATA_DIR, "ex4_GO_depth_sweep_N200.csv")
 const BIGFLOAT_CONSTRUCT_ONLY_CSV =
     joinpath(DATA_DIR, "ex4_GO_depth_sweep_bigfloat_construct_only.csv")
 
@@ -21,7 +21,7 @@ using GutlebOlver
 
 const OMEGA = 20.0
 const EXACT_FREQ = 50.0
-const BASIS_LEN = 150
+const BASIS_LEN = 200
 const DEGREE_USED = BASIS_LEN - 1
 const DEPTHS = 2:60
 const FLIP = true
@@ -75,6 +75,10 @@ const CSV_COLUMNS = (
     :residual_relative,
     :operator_build_time,
     :solve_time,
+    :maxabs_V,
+    :maxabs_A,
+    :nnz_V,
+    :nnz_A,
     :status,
     :rhs_projection_time,
     :kernel_coeff_time,
@@ -141,6 +145,10 @@ function failure_row(depth::Integer, err; rhs_projection_time::Float64, rhs_info
         residual_relative=NaN,
         operator_build_time=NaN,
         solve_time=NaN,
+        maxabs_V=NaN,
+        maxabs_A=NaN,
+        nnz_V=missing,
+        nnz_A=missing,
         status="failed: " * error_message(err),
         rhs_projection_time=rhs_projection_time,
         kernel_coeff_time=NaN,
@@ -212,7 +220,11 @@ function solve_for_depth(depth::Integer, rhs_coeff::AbstractVector{<:Real};
         residual_relative=residual_relative,
         operator_build_time=operator_build_time,
         solve_time=solve_time,
-        status="ok",
+        maxabs_V=Float64(matrix_maxabs(Vraw)),
+        maxabs_A=Float64(matrix_maxabs(A)),
+        nnz_V=safe_nnz_value(Vraw),
+        nnz_A=safe_nnz_value(A),
+        status="success",
         rhs_projection_time=rhs_projection_time,
         kernel_coeff_time=kernel_coeff_time,
         volterra_operator_time=volterra_operator_time,
@@ -871,7 +883,7 @@ function run_bigfloat_construct_only_depth_sweep()
 end
 
 function print_row(row)
-    if row.status == "ok"
+    if row.status == "success"
         @printf(
             "depth=%2d max_error=%.6e residual_relative=%.6e build=%.6e solve=%.6e\n",
             row.depth,
@@ -935,7 +947,7 @@ function main()
         print_row(row)
     end
 
-    ok_rows = [r for r in rows if r.status == "ok" && isfinite(r.max_error)]
+    ok_rows = [r for r in rows if r.status == "success" && isfinite(r.max_error)]
     println()
     if isempty(ok_rows)
         println("Summary: no successful depth rows.")
@@ -950,7 +962,6 @@ function main()
         )
     end
     println("Wrote CSV: ", OUTPUT_CSV)
-    run_bigfloat_construct_only_depth_sweep()
     return rows
 end
 
