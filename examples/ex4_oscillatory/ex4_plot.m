@@ -1,5 +1,5 @@
 % ex4_plot.m
-% Plot max error curves for GO and VoltMat depth sweeps, N = 200.
+% Plot error and timing curves for GO and VoltMat depth sweeps, N = 200.
 %
 % Expected input files:
 %   data/ex4_GO_depth_sweep_N200.csv
@@ -8,8 +8,22 @@
 % Output files:
 %   figures/ex4_depth_error_N200.pdf
 %   figures/ex4_depth_error_N200.png
+%   figures/ex4_depth_build_time_N200.pdf
+%   figures/ex4_depth_build_time_N200.png
 
 clear; clc; close all;
+
+%% Plot options
+% timePart:
+%   "build" : only operator construction time
+%   "total" : operator construction + solve time
+%
+% timeStat:
+%   "min"    : less affected by OS jitter
+%   "q25"    : lower quartile
+%   "median" : BenchmarkTools median
+timePart = "total";
+timeStat = "min";
 
 %% Paths
 scriptDir = fileparts(mfilename('fullpath'));
@@ -39,42 +53,48 @@ end
 Tgo = readtable(goFile);
 Tvm = readtable(voltmatFile);
 
-%% Keep successful rows
-if ismember('status', Tgo.Properties.VariableNames)
-    statusGO = lower(string(Tgo.status));
-    Tgo = Tgo(statusGO == "ok" | statusGO == "success", :);
-end
+Tgo = keep_success_rows(Tgo);
+Tvm = keep_success_rows(Tvm);
 
-if ismember('status', Tvm.Properties.VariableNames)
-    statusVM = lower(string(Tvm.status));
-    Tvm = Tvm(statusVM == "ok" | statusVM == "success", :);
-end
-
-%% Remove invalid rows
-Tgo = Tgo(isfinite(Tgo.depth) & isfinite(Tgo.max_error) & Tgo.max_error > 0, :);
-Tvm = Tvm(isfinite(Tvm.depth) & isfinite(Tvm.max_error) & Tvm.max_error > 0, :);
-
-%% Sort by depth
 Tgo = sortrows(Tgo, 'depth');
 Tvm = sortrows(Tvm, 'depth');
 
-%% Plot max error
-fig = figure('Color', 'w');
+%% Error data
+TgoErr = Tgo(isfinite(Tgo.depth) & isfinite(Tgo.max_error) & Tgo.max_error > 0, :);
+TvmErr = Tvm(isfinite(Tvm.depth) & isfinite(Tvm.max_error) & Tvm.max_error > 0, :);
+
+%% Timing data
+goTime = compute_time(Tgo, timePart, timeStat);
+vmTime = compute_time(Tvm, timePart, timeStat);
+
+validGOTime = isfinite(Tgo.depth) & isfinite(goTime) & goTime > 0;
+validVMTime = isfinite(Tvm.depth) & isfinite(vmTime) & vmTime > 0;
+
+goDepthTime = Tgo.depth(validGOTime);
+vmDepthTime = Tvm.depth(validVMTime);
+goTime      = goTime(validGOTime);
+vmTime      = vmTime(validVMTime);
+
+%% ============================================================
+%  Figure 1: error curve
+% =============================================================
+
+fig1 = figure('Color', 'w');
 hold on;
 
-semilogy(Tgo.depth, Tgo.max_error, ...
+semilogy(TvmErr.depth, TvmErr.max_error, ...
     'LineWidth', 1.8);
 
-semilogy(Tvm.depth, Tvm.max_error, ...
+semilogy(TgoErr.depth, TgoErr.max_error,  ...
     'LineWidth', 1.8);
 
-xlabel('kernel expansion depth', 'Interpreter', 'latex');
+xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
 ylabel('error', 'Interpreter', 'latex');
 
 legend( ...
-    'Gutleb-Olver', ...
     'VoltMat-Cheb', ...
-    'Location', 'best', ...
+    'Gulteb-Olver', ...
+    'Location', 'northwest', ...
     'Interpreter', 'latex' ...
 );
 
@@ -87,37 +107,187 @@ set(gca, ...
 
 box on;
 
-%% Save figures
-pdfFile = fullfile(figDir, 'ex4_depth_error_N200.pdf');
-pngFile = fullfile(figDir, 'ex4_depth_error_N200.png');
 
-exportgraphics(fig, pdfFile, 'ContentType', 'vector');
-exportgraphics(fig, pngFile, 'Resolution', 300);
+pdfFile1 = fullfile(figDir, 'ex4_depth_error_N200.pdf');
+pngFile1 = fullfile(figDir, 'ex4_depth_error_N200.png');
 
+exportgraphics(fig1, pdfFile1, 'ContentType', 'vector');
+exportgraphics(fig1, pngFile1, 'Resolution', 300);
+
+%% ============================================================
+%  Figure 2: timing curve, log-log
+% =============================================================
+
+fig2 = figure('Color', 'w');
+hold on;
+
+loglog(vmDepthTime, vmTime,  ...
+    'LineWidth', 1.8);
+
+loglog(goDepthTime, goTime,  ...
+    'LineWidth', 1.8);
+
+% Reference complexity curves on the tail.
+tailCount = 40;
+
+add_reference_curve(vmDepthTime, vmTime, tailCount, ...
+    @(n) n.^2 .* log(n), '$O(n^2\log n)$', 1.5);
+
+add_reference_curve(goDepthTime, goTime, tailCount, ...
+    @(n) n.^3, '$O(n^3)$', 0.8);
+
+xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
+
+if timePart == "build"
+    ylabel('construction time (sec)', 'Interpreter', 'latex');
+    titleText = sprintf('construction time, %s statistic', timeStat);
+else
+    ylabel('time (sec)', 'Interpreter', 'latex');
+    titleText = sprintf('time, %s statistic', timeStat);
+end
+
+legend( ...
+    'VoltMat-Cheb', ...
+    'Gulteb-Olver', ...
+    'Location', 'northwest', ...
+    'Interpreter', 'latex' ...
+);
+
+set(gca, ...
+    'FontSize', 12, ...
+    'TickLabelInterpreter', 'latex', ...
+    'XScale', 'log', ...
+    'YScale', 'log' ...
+);
+
+grid on;
+box on;
+
+pdfFile2 = fullfile(figDir, 'ex4_depth_time_N200.pdf');
+pngFile2 = fullfile(figDir, 'ex4_depth_time_N200.png');
+
+exportgraphics(fig2, pdfFile2, 'ContentType', 'vector');
+exportgraphics(fig2, pngFile2, 'Resolution', 300);
+
+%% Print summary
 fprintf('Saved figures:\n');
-fprintf('  %s\n', pdfFile);
-fprintf('  %s\n', pngFile);
+fprintf('  %s\n', pdfFile1);
+fprintf('  %s\n', pngFile1);
+fprintf('  %s\n', pdfFile2);
+fprintf('  %s\n', pngFile2);
 
-%% Print best errors
-[goBestErr, goIdx] = min(Tgo.max_error);
-[vmBestErr, vmIdx] = min(Tvm.max_error);
+[goBestErr, goIdx] = min(TgoErr.max_error);
+[vmBestErr, vmIdx] = min(TvmErr.max_error);
 
 fprintf('\nBest errors:\n');
 fprintf('  GO sparse Volterra, N=200: depth = %d, max_error = %.6e\n', ...
-    Tgo.depth(goIdx), goBestErr);
+    TgoErr.depth(goIdx), goBestErr);
 fprintf('  VoltMat-Cheb,       N=200: depth = %d, max_error = %.6e\n', ...
-    Tvm.depth(vmIdx), vmBestErr);
+    TvmErr.depth(vmIdx), vmBestErr);
 
-%% Optional diagnostics for VoltMat
-if ismember('exact_residual_inf', Tvm.Properties.VariableNames)
-    [bestExactRes, idxRes] = min(Tvm.exact_residual_inf);
-    fprintf('\nVoltMat exact residual diagnostic:\n');
-    fprintf('  best exact_residual_inf: depth = %d, exact_residual_inf = %.6e\n', ...
-        Tvm.depth(idxRes), bestExactRes);
+[goBestTime, goTimeIdx] = min(goTime);
+[vmBestTime, vmTimeIdx] = min(vmTime);
+
+fprintf('\nBest times using %s %s statistic:\n', timePart, timeStat);
+fprintf('  GO sparse Volterra, N=200: depth = %d, time = %.6e sec\n', ...
+    goDepthTime(goTimeIdx), goBestTime);
+fprintf('  VoltMat-Cheb,       N=200: depth = %d, time = %.6e sec\n', ...
+    vmDepthTime(vmTimeIdx), vmBestTime);
+
+%% Local helper functions
+
+function T = keep_success_rows(T)
+    if ismember('status', T.Properties.VariableNames)
+        status = lower(string(T.status));
+        T = T(status == "ok" | status == "success", :);
+    end
 end
 
-if ismember('rhs_tail_inf', Tvm.Properties.VariableNames)
-    [bestTail, idxTail] = min(Tvm.rhs_tail_inf);
-    fprintf('  best rhs_tail_inf:       depth = %d, rhs_tail_inf = %.6e\n', ...
-        Tvm.depth(idxTail), bestTail);
+function t = compute_time(T, timePart, timeStat)
+    n = height(T);
+
+    buildCol = benchmark_column_name("build", timeStat);
+    solveCol = benchmark_column_name("solve", timeStat);
+
+    if ismember(buildCol, T.Properties.VariableNames)
+        buildTime = T.(buildCol);
+    elseif ismember('benchmark_build_median_time', T.Properties.VariableNames)
+        buildTime = T.benchmark_build_median_time;
+    elseif ismember('operator_build_time', T.Properties.VariableNames)
+        buildTime = T.operator_build_time;
+    else
+        error('No operator build-time column found.');
+    end
+
+    if ismember(solveCol, T.Properties.VariableNames)
+        solveTime = T.(solveCol);
+    elseif ismember('benchmark_solve_median_time', T.Properties.VariableNames)
+        solveTime = T.benchmark_solve_median_time;
+    elseif ismember('solve_time', T.Properties.VariableNames)
+        solveTime = T.solve_time;
+    else
+        solveTime = zeros(n, 1);
+    end
+
+    if timePart == "build"
+        t = buildTime;
+    elseif timePart == "total"
+        t = buildTime + solveTime;
+    else
+        error('Unknown timePart: %s', timePart);
+    end
+end
+
+function col = benchmark_column_name(part, stat)
+    if stat == "min"
+        col = "benchmark_" + part + "_min_time";
+    elseif stat == "q25"
+        col = "benchmark_" + part + "_q25_time";
+    elseif stat == "median"
+        col = "benchmark_" + part + "_median_time";
+    elseif stat == "q75"
+        col = "benchmark_" + part + "_q75_time";
+    else
+        error('Unknown timeStat: %s', stat);
+    end
+    col = char(col);
+end
+
+function add_reference_curve(depth, timeValue, tailCount, rateFun, labelText, offsetFactor)
+    depth = depth(:);
+    timeValue = timeValue(:);
+
+    valid = isfinite(depth) & isfinite(timeValue) & depth > 1 & timeValue > 0;
+    depth = depth(valid);
+    timeValue = timeValue(valid);
+
+    if numel(depth) < 3
+        return;
+    end
+
+    [depth, idx] = sort(depth);
+    timeValue = timeValue(idx);
+
+    m = min(tailCount, numel(depth));
+    tailDepth = depth(end-m+1:end);
+    tailTime  = timeValue(end-m+1:end);
+
+    refShape = rateFun(tailDepth);
+    refShape = refShape(:);
+
+    scale = median(tailTime ./ refShape, 'omitnan');
+    refTime = offsetFactor * scale * refShape;
+
+    loglog(tailDepth, refTime, 'k--', ...
+        'LineWidth', 1.2, ...
+        'HandleVisibility', 'off');
+
+    xText = tailDepth(end-8);
+    yText = refTime(end-10);
+
+    text(xText, yText, ['  ', labelText], ...
+        'Interpreter', 'latex', ...
+        'FontSize', 10, ...
+        'HorizontalAlignment', 'left', ...
+        'VerticalAlignment', 'middle');
 end

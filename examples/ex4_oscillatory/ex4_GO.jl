@@ -1,5 +1,83 @@
+# -------------------------------------------------------------------------
+# ex4_GO.jl
+#
+# This script solves the second-kind Volterra integral equation
+#
+#     u(x) + int_0^x cos(omega*x*y) u(y) dy = f(x),      x in [0,1],
+#
+# with
+#
+#     omega = 20,
+#     u_exact(x) = cos(50*x).
+#
+# The right-hand side is evaluated analytically using
+#
+#     f(x) = cos(50*x)
+#            + x/2 * [
+#                  sinc1((omega*x - 50)*x)
+#                + sinc1((omega*x + 50)*x)
+#              ],
+#
+# where sinc1(z) = sin(z)/z and sinc1(0) = 1. The implementation does not
+# generate f by numerical integration.
+#
+# Method:
+#   This script uses the Gutleb--Olver sparse Volterra construction from
+#   others/GutlebOlver. The kernel is expanded to a prescribed depth, and the
+#   resulting sparse Volterra coefficient matrix is used to discretize
+#
+#       u + V_K u = f.
+#
+#   The equation is treated on x in [0,1]. If the internal Gutleb--Olver
+#   representation uses a shifted or reflected basis, the corresponding
+#   transformations are handled by helper routines in this script and in
+#   others/GutlebOlver.
+#
+# Parameters:
+#   basis_len = 200.
+#   depth ranges from 2 to 60 in the full sweep.
+#
+# Output:
+#   The main sweep writes
+#
+#       examples/ex4_oscillatory/data/ex4_GO_depth_sweep_N200.csv
+#
+#   This file also contains helper code for BigFloat construction-only
+#   experiments. Those experiments write
+#
+#       examples/ex4_oscillatory/data/ex4_GO_depth_sweep_bigfloat_construct_only.csv
+#
+#   only if the corresponding helper is called explicitly; the default and
+#   --benchmark entries do not run that experiment.
+#
+# Usage:
+#   Error sweep:
+#
+#       julia --project=. examples/ex4_oscillatory/ex4_GO.jl
+#
+#   BenchmarkTools timing sweep:
+#
+#       julia --project=. examples/ex4_oscillatory/ex4_GO.jl --benchmark
+#
+# Benchmark mode:
+#   The benchmark mode uses BenchmarkTools and is separated from the error
+#   computation. It does not evaluate the dense grid error. It updates the
+#   timing columns in the same CSV file while preserving existing error data.
+#   The environment variables EX4_BENCH_BUILD_SAMPLES, EX4_BENCH_SOLVE_SAMPLES,
+#   EX4_BENCH_BUILD_SECONDS, EX4_BENCH_SOLVE_SECONDS, and
+#   EX4_BENCH_PRIMARY_STAT can be used to tune the timing run.
+#
+# Notes:
+#   This script uses only the Gutleb--Olver sparse Volterra construction.
+#   It does not use VoltMat-Cheb.
+#   The equation is a pure second-kind Volterra integral equation and does not
+#   contain a derivative term.
+# -------------------------------------------------------------------------
+
 using LinearAlgebra
 using Printf
+using BenchmarkTools
+using Statistics
 
 const SCRIPT_DIR = @__DIR__
 const PROJECT_ROOT = normpath(joinpath(SCRIPT_DIR, "..", ".."))
@@ -66,6 +144,164 @@ function csv_cell(value)
     end
 end
 
+function parse_csv_line(line::AbstractString)
+    fields = String[]
+    buf = IOBuffer()
+    in_quotes = false
+    i = firstindex(line)
+    while i <= lastindex(line)
+        c = line[i]
+        if c == '"'
+            if in_quotes && i < lastindex(line) && line[nextind(line, i)] == '"'
+                write(buf, '"')
+                i = nextind(line, i)
+            else
+                in_quotes = !in_quotes
+            end
+        elseif c == ',' && !in_quotes
+            push!(fields, String(take!(buf)))
+        else
+            write(buf, c)
+        end
+        i = nextind(line, i)
+    end
+    push!(fields, String(take!(buf)))
+    return fields
+end
+
+function read_csv_by_depth(path::AbstractString)
+    rows = Dict{Int,Dict{Symbol,Any}}()
+    isfile(path) || return rows
+
+    lines = readlines(path)
+    isempty(lines) && return rows
+
+    header = Symbol.(parse_csv_line(lines[1]))
+    for line in lines[2:end]
+        isempty(strip(line)) && continue
+        fields = parse_csv_line(line)
+        row = Dict{Symbol,Any}()
+        for (j, col) in enumerate(header)
+            row[col] = j <= length(fields) ? fields[j] : ""
+        end
+        if haskey(row, :depth) && !isempty(string(row[:depth]))
+            rows[parse(Int, string(row[:depth]))] = row
+        end
+    end
+    return rows
+end
+
+function blank_csv_row(depth::Int)
+    row = Dict{Symbol,Any}(col => "" for col in CSV_COLUMNS)
+    row[:depth] = depth
+    row[:basis_len] = BASIS_LEN
+    row[:degree_used] = DEGREE_USED
+    row[:omega] = OMEGA
+    row[:status] = "missing"
+    return row
+end
+
+function row_dict(row)
+    return Dict{Symbol,Any}(col => getproperty(row, col) for col in CSV_COLUMNS)
+end
+
+function write_rows_by_depth(path::AbstractString, rows_by_depth::Dict{Int,Dict{Symbol,Any}})
+    mkpath(dirname(path))
+    open(path, "w") do io
+        println(io, join(string.(CSV_COLUMNS), ","))
+        for depth in DEPTHS
+            row = get(rows_by_depth, Int(depth), blank_csv_row(Int(depth)))
+            println(io, join((csv_cell(get(row, col, "")) for col in CSV_COLUMNS), ","))
+        end
+        flush(io)
+    end
+    return path
+end
+
+function existing_or_nan(old_row, col::Symbol)
+    if old_row !== nothing && haskey(old_row, col) && !isempty(string(old_row[col]))
+        return old_row[col]
+    end
+    return NaN
+end
+
+function preserve_benchmark_columns!(new_row::Dict{Symbol,Any}, old_row)
+    for col in (
+        :operator_build_time,
+        :solve_time,
+        :benchmark_build_min_time,
+        :benchmark_build_median_time,
+        :benchmark_build_q25_time,
+        :benchmark_build_q75_time,
+        :benchmark_build_iqr_time,
+        :benchmark_solve_min_time,
+        :benchmark_solve_median_time,
+        :benchmark_solve_q25_time,
+        :benchmark_solve_q75_time,
+        :benchmark_solve_iqr_time,
+        :benchmark_build_samples,
+        :benchmark_solve_samples,
+        :benchmark_build_allocs,
+        :benchmark_solve_allocs,
+    )
+        new_row[col] = existing_or_nan(old_row, col)
+    end
+    return new_row
+end
+
+function env_int(name::AbstractString, default::Int)
+    raw = get(ENV, name, "")
+    isempty(strip(raw)) && return default
+    return parse(Int, raw)
+end
+
+function env_float(name::AbstractString, default::Float64)
+    raw = get(ENV, name, "")
+    isempty(strip(raw)) && return default
+    return parse(Float64, raw)
+end
+
+function benchmark_summary(trial)
+    times_sec = sort!(Float64.(trial.times) .* 1.0e-9)
+    q25_time = quantile(times_sec, 0.25)
+    q75_time = quantile(times_sec, 0.75)
+    return (
+        min_time=minimum(times_sec),
+        median_time=median(times_sec),
+        q25_time=q25_time,
+        q75_time=q75_time,
+        iqr_time=q75_time - q25_time,
+        samples=length(trial.times),
+        allocs=BenchmarkTools.allocs(trial),
+    )
+end
+
+function primary_stat_value(stat, primary::Symbol)
+    primary === :median && return stat.median_time
+    primary === :min && return stat.min_time
+    primary === :q25 && return stat.q25_time
+    throw(ArgumentError("EX4_BENCH_PRIMARY_STAT must be median, min, or q25"))
+end
+
+function primary_stat_symbol()
+    raw = lowercase(strip(get(ENV, "EX4_BENCH_PRIMARY_STAT", "median")))
+    raw == "median" && return :median
+    raw == "min" && return :min
+    raw == "q25" && return :q25
+    throw(ArgumentError("EX4_BENCH_PRIMARY_STAT must be median, min, or q25"))
+end
+
+function adaptive_build_samples(requested::Int, warmup_time::Float64, target_seconds::Float64)
+    requested = max(requested, 8)
+    warmup_time <= 0.0 && return requested
+    estimate = floor(Int, target_seconds / warmup_time)
+    return clamp(max(estimate, 8), 8, requested)
+end
+
+function adjusted_seconds(base_seconds::Float64, warmup_time::Float64, samples::Int)
+    return max(base_seconds, 1.25 * max(warmup_time, eps(Float64)) * samples)
+end
+
 const CSV_COLUMNS = (
     :depth,
     :basis_len,
@@ -75,6 +311,20 @@ const CSV_COLUMNS = (
     :residual_relative,
     :operator_build_time,
     :solve_time,
+    :benchmark_build_min_time,
+    :benchmark_build_median_time,
+    :benchmark_build_q25_time,
+    :benchmark_build_q75_time,
+    :benchmark_build_iqr_time,
+    :benchmark_solve_min_time,
+    :benchmark_solve_median_time,
+    :benchmark_solve_q25_time,
+    :benchmark_solve_q75_time,
+    :benchmark_solve_iqr_time,
+    :benchmark_build_samples,
+    :benchmark_solve_samples,
+    :benchmark_build_allocs,
+    :benchmark_solve_allocs,
     :maxabs_V,
     :maxabs_A,
     :nnz_V,
@@ -135,6 +385,26 @@ function error_message(err)
     return sprint(showerror, err)
 end
 
+function build_go_operator_for_depth(depth::Integer)
+    depth_int = Int(depth)
+    plan = precompute_triangular_kernel_plan(depth_int, FLIP)
+    coeffs = triangular_kernel_coeffs_from_plan(plan, kernel)
+    Vraw = triVolterraFullKernelOpP01_strictband_from_coeffs(
+        coeffs,
+        BASIS_LEN,
+        FLIP,
+    )
+    return Vraw, coeffs
+end
+
+function assemble_go_system_from_operator(Vraw)
+    return build_secondkind_system_strictband(Vraw, BASIS_LEN; sign=1.0)
+end
+
+function solve_go_system(A, rhs_coeff)
+    return A \ rhs_coeff
+end
+
 function failure_row(depth::Integer, err; rhs_projection_time::Float64, rhs_info)
     return (
         depth=Int(depth),
@@ -145,6 +415,20 @@ function failure_row(depth::Integer, err; rhs_projection_time::Float64, rhs_info
         residual_relative=NaN,
         operator_build_time=NaN,
         solve_time=NaN,
+        benchmark_build_min_time=NaN,
+        benchmark_build_median_time=NaN,
+        benchmark_build_q25_time=NaN,
+        benchmark_build_q75_time=NaN,
+        benchmark_build_iqr_time=NaN,
+        benchmark_solve_min_time=NaN,
+        benchmark_solve_median_time=NaN,
+        benchmark_solve_q25_time=NaN,
+        benchmark_solve_q75_time=NaN,
+        benchmark_solve_iqr_time=NaN,
+        benchmark_build_samples=0,
+        benchmark_solve_samples=0,
+        benchmark_build_allocs=NaN,
+        benchmark_solve_allocs=NaN,
         maxabs_V=NaN,
         maxabs_A=NaN,
         nnz_V=missing,
@@ -220,6 +504,20 @@ function solve_for_depth(depth::Integer, rhs_coeff::AbstractVector{<:Real};
         residual_relative=residual_relative,
         operator_build_time=operator_build_time,
         solve_time=solve_time,
+        benchmark_build_min_time=NaN,
+        benchmark_build_median_time=NaN,
+        benchmark_build_q25_time=NaN,
+        benchmark_build_q75_time=NaN,
+        benchmark_build_iqr_time=NaN,
+        benchmark_solve_min_time=NaN,
+        benchmark_solve_median_time=NaN,
+        benchmark_solve_q25_time=NaN,
+        benchmark_solve_q75_time=NaN,
+        benchmark_solve_iqr_time=NaN,
+        benchmark_build_samples=0,
+        benchmark_solve_samples=0,
+        benchmark_build_allocs=NaN,
+        benchmark_solve_allocs=NaN,
         maxabs_V=Float64(matrix_maxabs(Vraw)),
         maxabs_A=Float64(matrix_maxabs(A)),
         nnz_V=safe_nnz_value(Vraw),
@@ -899,6 +1197,8 @@ function print_row(row)
 end
 
 function main()
+    existing_rows = read_csv_by_depth(OUTPUT_CSV)
+
     println("Gutleb--Olver depth sweep for oscillatory second-kind Volterra equation")
     println("project_root = ", PROJECT_ROOT)
     println("go_project   = ", GUTLEB_OLVER_PROJECT)
@@ -907,8 +1207,6 @@ function main()
     println("degree_used  = ", DEGREE_USED)
     println("omega        = ", OMEGA)
     println("depths       = ", first(DEPTHS), ":", last(DEPTHS))
-
-    write_header(OUTPUT_CSV)
 
     local rhs_coeff
     local rhs_info
@@ -931,6 +1229,7 @@ function main()
     println()
 
     rows = NamedTuple[]
+    rows_by_depth = copy(existing_rows)
     for depth in DEPTHS
         row = try
             solve_for_depth(
@@ -942,7 +1241,10 @@ function main()
         catch err
             failure_row(depth, err; rhs_projection_time=rhs_projection_time, rhs_info=rhs_info)
         end
-        append_row(OUTPUT_CSV, row)
+        row_out = row_dict(row)
+        preserve_benchmark_columns!(row_out, get(existing_rows, Int(depth), nothing))
+        rows_by_depth[Int(depth)] = row_out
+        write_rows_by_depth(OUTPUT_CSV, rows_by_depth)
         push!(rows, row)
         print_row(row)
     end
@@ -965,6 +1267,251 @@ function main()
     return rows
 end
 
+function benchmark_failure_row(depth::Int, err)
+    row = blank_csv_row(depth)
+    row[:operator_build_time] = NaN
+    row[:solve_time] = NaN
+    row[:benchmark_build_min_time] = NaN
+    row[:benchmark_build_median_time] = NaN
+    row[:benchmark_build_q25_time] = NaN
+    row[:benchmark_build_q75_time] = NaN
+    row[:benchmark_build_iqr_time] = NaN
+    row[:benchmark_solve_min_time] = NaN
+    row[:benchmark_solve_median_time] = NaN
+    row[:benchmark_solve_q25_time] = NaN
+    row[:benchmark_solve_q75_time] = NaN
+    row[:benchmark_solve_iqr_time] = NaN
+    row[:benchmark_build_samples] = 0
+    row[:benchmark_solve_samples] = 0
+    row[:benchmark_build_allocs] = NaN
+    row[:benchmark_solve_allocs] = NaN
+    row[:status] = "benchmark_failed: " * error_message(err)
+    return row
+end
+
+function benchmark_one_depth(depth::Int, rhs_coeff;
+                             build_samples::Int,
+                             solve_samples::Int,
+                             build_seconds::Float64,
+                             solve_seconds::Float64,
+                             primary::Symbol)
+    local V_warm
+    warmup_build_time = @elapsed begin
+        V_warm, _ = build_go_operator_for_depth(depth)
+    end
+    A_warm = assemble_go_system_from_operator(V_warm)
+    warmup_solve_time = @elapsed begin
+        solve_go_system(A_warm, rhs_coeff)
+    end
+    GC.gc()
+
+    effective_build_samples = adaptive_build_samples(
+        build_samples,
+        warmup_build_time,
+        build_seconds,
+    )
+    effective_build_seconds = adjusted_seconds(
+        build_seconds,
+        warmup_build_time,
+        effective_build_samples,
+    )
+
+    build_trial = run(
+        @benchmarkable build_go_operator_for_depth($depth) evals=1;
+        samples=effective_build_samples,
+        seconds=effective_build_seconds,
+    )
+    build_stat = benchmark_summary(build_trial)
+
+    Vraw, _ = build_go_operator_for_depth(depth)
+    A = assemble_go_system_from_operator(Vraw)
+    effective_solve_seconds = adjusted_seconds(
+        solve_seconds,
+        warmup_solve_time,
+        solve_samples,
+    )
+
+    solve_trial = run(
+        @benchmarkable solve_go_system($A, $rhs_coeff) evals=1;
+        samples=solve_samples,
+        seconds=effective_solve_seconds,
+    )
+    solve_stat = benchmark_summary(solve_trial)
+    primary_build_time = primary_stat_value(build_stat, primary)
+    primary_solve_time = primary_stat_value(solve_stat, primary)
+
+    row = blank_csv_row(depth)
+    row[:operator_build_time] = primary_build_time
+    row[:solve_time] = primary_solve_time
+    row[:benchmark_build_min_time] = build_stat.min_time
+    row[:benchmark_build_median_time] = primary_build_time
+    row[:benchmark_build_q25_time] = build_stat.q25_time
+    row[:benchmark_build_q75_time] = build_stat.q75_time
+    row[:benchmark_build_iqr_time] = build_stat.iqr_time
+    row[:benchmark_solve_min_time] = solve_stat.min_time
+    row[:benchmark_solve_median_time] = primary_solve_time
+    row[:benchmark_solve_q25_time] = solve_stat.q25_time
+    row[:benchmark_solve_q75_time] = solve_stat.q75_time
+    row[:benchmark_solve_iqr_time] = solve_stat.iqr_time
+    row[:benchmark_build_samples] = build_stat.samples
+    row[:benchmark_solve_samples] = solve_stat.samples
+    row[:benchmark_build_allocs] = build_stat.allocs
+    row[:benchmark_solve_allocs] = solve_stat.allocs
+    row[:maxabs_V] = Float64(matrix_maxabs(Vraw))
+    row[:maxabs_A] = Float64(matrix_maxabs(A))
+    row[:nnz_V] = safe_nnz_value(Vraw)
+    row[:nnz_A] = safe_nnz_value(A)
+    row[:raw_operator_type] = string(nameof(typeof(Vraw)))
+    row[:system_type] = string(nameof(typeof(A)))
+    row[:raw_operator_nnz] = safe_nnz_value(Vraw)
+    row[:system_nnz] = safe_nnz_value(A)
+    row[:raw_lower_bandwidth] = bandwidth_component(Vraw, 1)
+    row[:raw_upper_bandwidth] = bandwidth_component(Vraw, 2)
+    row[:system_lower_bandwidth] = bandwidth_component(A, 1)
+    row[:system_upper_bandwidth] = bandwidth_component(A, 2)
+    row[:status] = "success"
+    return row
+end
+
+function merge_benchmark_row!(rows_by_depth, depth::Int, bench_row::Dict{Symbol,Any})
+    row = get(rows_by_depth, depth, blank_csv_row(depth))
+    for (key, value) in bench_row
+        if key in (
+            :operator_build_time,
+            :solve_time,
+            :benchmark_build_min_time,
+            :benchmark_build_median_time,
+            :benchmark_build_q25_time,
+            :benchmark_build_q75_time,
+            :benchmark_build_iqr_time,
+            :benchmark_solve_min_time,
+            :benchmark_solve_median_time,
+            :benchmark_solve_q25_time,
+            :benchmark_solve_q75_time,
+            :benchmark_solve_iqr_time,
+            :benchmark_build_samples,
+            :benchmark_solve_samples,
+            :benchmark_build_allocs,
+            :benchmark_solve_allocs,
+            :maxabs_V,
+            :maxabs_A,
+            :nnz_V,
+            :nnz_A,
+            :basis_len,
+            :degree_used,
+            :omega,
+            :raw_operator_type,
+            :system_type,
+            :raw_operator_nnz,
+            :system_nnz,
+            :raw_lower_bandwidth,
+            :raw_upper_bandwidth,
+            :system_lower_bandwidth,
+            :system_upper_bandwidth,
+            :status,
+        )
+            row[key] = value
+        end
+    end
+    rows_by_depth[depth] = row
+    return row
+end
+
+function run_benchmark_depth_sweep()
+    build_samples = env_int("EX4_BENCH_BUILD_SAMPLES", 20)
+    solve_samples = env_int("EX4_BENCH_SOLVE_SAMPLES", 100)
+    build_seconds = env_float("EX4_BENCH_BUILD_SECONDS", 2.0)
+    solve_seconds = env_float("EX4_BENCH_SOLVE_SECONDS", 2.0)
+    primary = primary_stat_symbol()
+    blas_threads_before = BLAS.get_num_threads()
+    BLAS.set_num_threads(1)
+
+    println("Gutleb--Olver BenchmarkTools depth sweep")
+    println("output_csv           = ", OUTPUT_CSV)
+    println("basis_len            = ", BASIS_LEN)
+    println("degree_used          = ", DEGREE_USED)
+    println("build benchmark      = GO sparse Volterra V construction only")
+    println("solve benchmark      = prebuilt A \\ rhs only")
+    println("Julia threads        = ", Threads.nthreads())
+    println("BLAS threads before  = ", blas_threads_before)
+    println("BLAS threads active  = ", BLAS.get_num_threads())
+    println("build_samples        = ", build_samples)
+    println("solve_samples        = ", solve_samples)
+    println("build_seconds        = ", build_seconds)
+    println("solve_seconds        = ", solve_seconds)
+    println("primary benchmark statistic = ", primary)
+
+    rhs_coeff, _ = build_go_rhs_coefficients(
+        analytic_rhs,
+        BASIS_LEN;
+        alpha=0,
+        beta=1,
+        domain=0..1,
+        method=:fixed_gauss_jacobi,
+        validate=false,
+    )
+    rhs_coeff = Vector{Float64}(rhs_coeff)
+
+    rows_by_depth = read_csv_by_depth(OUTPUT_CSV)
+    for depth in DEPTHS
+        bench_row = try
+            benchmark_one_depth(
+                Int(depth),
+                rhs_coeff;
+                build_samples=build_samples,
+                solve_samples=solve_samples,
+                build_seconds=build_seconds,
+                solve_seconds=solve_seconds,
+                primary=primary,
+            )
+        catch err
+            benchmark_failure_row(Int(depth), err)
+        end
+
+        merged = merge_benchmark_row!(rows_by_depth, Int(depth), bench_row)
+        write_rows_by_depth(OUTPUT_CSV, rows_by_depth)
+
+        @printf(
+            "depth = %2d, status = %-16s\n",
+            Int(depth),
+            string(get(merged, :status, "")),
+        )
+        @printf(
+            "  build: min=%.6e median=%.6e q25=%.6e q75=%.6e iqr=%.6e samples=%s allocs=%s\n",
+            parse(Float64, string(get(merged, :benchmark_build_min_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_build_median_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_build_q25_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_build_q75_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_build_iqr_time, "NaN"))),
+            string(get(merged, :benchmark_build_samples, "")),
+            string(get(merged, :benchmark_build_allocs, "")),
+        )
+        @printf(
+            "  solve: min=%.6e median=%.6e q25=%.6e q75=%.6e iqr=%.6e samples=%s allocs=%s\n",
+            parse(Float64, string(get(merged, :benchmark_solve_min_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_solve_median_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_solve_q25_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_solve_q75_time, "NaN"))),
+            parse(Float64, string(get(merged, :benchmark_solve_iqr_time, "NaN"))),
+            string(get(merged, :benchmark_solve_samples, "")),
+            string(get(merged, :benchmark_solve_allocs, "")),
+        )
+        println("  primary = ", primary)
+        flush(stdout)
+    end
+
+    println("Benchmark CSV written to: ", OUTPUT_CSV)
+    return nothing
+end
+
+function requested_benchmark()
+    return any(arg -> arg == "--benchmark", ARGS)
+end
+
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
-    main()
+    if requested_benchmark()
+        run_benchmark_depth_sweep()
+    else
+        main()
+    end
 end
