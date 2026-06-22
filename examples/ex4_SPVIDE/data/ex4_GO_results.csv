@@ -1,2 +1,0 @@
-method,N,N_ref,omega,cauchy_coeff_error,cauchy_grid_error,tail_coeff_norm,build_operator_sec,build_rhs_sec,solve_sec,total_time_sec,nnzA,nnzVK,residual_inf,status
-GutlebOlver,30000,30300,1.0,5.033414533316788e-42,0.0,1.2087893331043212e-34,2.6538147,0.00019250000000000002,0.0115885,4.5422984,269989,209995,1.862645149230957e-9,ok

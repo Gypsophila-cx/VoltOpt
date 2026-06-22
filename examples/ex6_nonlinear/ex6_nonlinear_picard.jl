@@ -12,7 +12,6 @@
 
 using LinearAlgebra
 using Printf
-using Plots
 
 const α = 100.0
 const λ = 1.0
@@ -22,13 +21,6 @@ const maxit = 100
 const M_eval = 4001
 
 const RUN_DIRECT_BASELINE = get(ENV, "RUN_DIRECT_BASELINE", "0") == "1"
-
-function savefig_pdf_png(fig, pdf_path::AbstractString)
-    png_path = replace(pdf_path, r"\.pdf$" => ".png")
-    savefig(fig, pdf_path)
-    savefig(fig, png_path)
-    return png_path
-end
 
 function _candidate_compvolt_paths(root::AbstractString)
     return (
@@ -163,11 +155,14 @@ function direct_trapezoid_baseline(u_vals::AbstractVector, x_nodes::AbstractVect
 end
 
 function write_history_csv(path::AbstractString, history)
+    mkpath(dirname(path))
     open(path, "w") do io
-        println(io, "iter,update_err,node_err,eqgrid_err,action_time_sec,total_elapsed_sec")
+        println(io, "N,iter,residual,residual_relative,err_inf,max_abs_error,solve_time,elapsed_time,status,update_err,node_err,eqgrid_err,action_time_sec,total_elapsed_sec")
         for h in history
-            @printf(io, "%d,%.17e,%.17e,%.17e,%.17e,%.17e\n",
-                h.iter, h.update_err, h.node_err, h.eqgrid_err, h.action_time_sec, h.total_elapsed_sec)
+            @printf(io, "%d,%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%s,%.17e,%.17e,%.17e,%.17e,%.17e\n",
+                h.N, h.iter, h.residual, h.residual_relative, h.err_inf, h.max_abs_error,
+                h.solve_time, h.elapsed_time, h.status, h.update_err, h.node_err, h.eqgrid_err,
+                h.action_time_sec, h.total_elapsed_sec)
         end
     end
 end
@@ -179,8 +174,8 @@ end
 function main()
     script_t0 = time()
 
-    figures_dir = joinpath(project_root, "examples", "figures")
-    mkpath(figures_dir)
+    data_dir = joinpath(@__DIR__, "data")
+    mkpath(data_dir)
 
     grid = CompVoltGrid(N)
     x_nodes = grid.x
@@ -227,9 +222,20 @@ function main()
         node_err = norm(u_new_nodes - u_exact_vals, Inf)
         eqgrid_err = maximum(abs.(u_num_eval .- u_exact_eval))
         total_elapsed_sec = time() - picard_t0
+        residual_scale = max(1.0, norm(u_new_nodes, Inf))
+        residual_relative = update_err / residual_scale
+        status = update_err <= tol * residual_scale ? "converged" : (iter == maxit ? "maxit" : "iterating")
 
         push!(history, (
+            N=N,
             iter=iter,
+            residual=update_err,
+            residual_relative=residual_relative,
+            err_inf=eqgrid_err,
+            max_abs_error=node_err,
+            solve_time=action_time_sec,
+            elapsed_time=total_elapsed_sec,
+            status=status,
             update_err=update_err,
             node_err=node_err,
             eqgrid_err=eqgrid_err,
@@ -240,7 +246,7 @@ function main()
         @printf("iter = %3d  update_err = %.16e  node_err = %.16e  eqgrid_err = %.16e  action_time_sec = %.6f\n",
             iter, update_err, node_err, eqgrid_err, action_time_sec)
 
-        if update_err <= tol * max(1.0, norm(u_new_nodes, Inf))
+        if update_err <= tol * residual_scale
             c_old = c_new
             u_old_nodes = u_new_nodes
             converged = true
@@ -265,41 +271,7 @@ function main()
     final_eqgrid_err = maximum(abs.(u_num_eval .- u_exact_eval))
     final_iter = history[end].iter
 
-    solution_fig = joinpath(figures_dir, "ex6_solution_lambertW_picard_N1024.pdf")
-    error_fig = joinpath(figures_dir, "ex6_picard_error_decay_N1024.pdf")
-    history_csv = joinpath(figures_dir, "ex6_picard_history_N1024.csv")
-
-    default(label="", linewidth=2)
-    sol_plot = plot(
-        x_eval, u_num_eval;
-        xlabel="x",
-        ylabel="u(x)",
-        label="Picard numerical",
-        title="Nonlinear Volterra solution, α=100, λ=1, N=1024",
-    )
-    plot!(sol_plot, x_eval, u_exact_eval; linestyle=:dash, label="exact")
-    solution_png = savefig_pdf_png(sol_plot, solution_fig)
-
-    iters = [h.iter for h in history]
-    eqerrs = max.([h.eqgrid_err for h in history], tol)
-    update_errs = max.([h.update_err for h in history], tol)
-    ymax = max(maximum(eqerrs), maximum(update_errs)) * 10.0
-    ymax = max(ymax, 10.0 * tol)
-
-    err_plot = plot(
-        iters, eqerrs;
-        xlabel="iteration",
-        ylabel="error",
-        yaxis=:log10,
-        ylims=(1e-15, 1),
-        marker=false,
-        label=nothing,
-        color=:black,
-        framestyle=:box,
-        grid = false,
-    )
-    #plot!(err_plot, iters, update_errs; linestyle=:dot, marker=:diamond, label="Picard update")
-    error_png = savefig_pdf_png(err_plot, error_fig)
+    history_csv = joinpath(data_dir, "ex6_nonlinear_picard_results.csv")
 
     write_history_csv(history_csv, history)
 
@@ -319,10 +291,6 @@ function main()
     @printf("final eqgrid err          = %.16e\n", final_eqgrid_err)
     @printf("total Picard time         = %.6f sec\n", total_picard_time)
     @printf("total runtime             = %.6f sec\n", total_runtime)
-    @printf("solution figure           = %s\n", relprint(solution_fig))
-    @printf("solution png              = %s\n", relprint(solution_png))
-    @printf("error figure              = %s\n", relprint(error_fig))
-    @printf("error png                 = %s\n", relprint(error_png))
     @printf("history csv               = %s\n", relprint(history_csv))
     println("============================================================")
 end

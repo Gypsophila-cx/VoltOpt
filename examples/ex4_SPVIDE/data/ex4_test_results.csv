@@ -1,3 +1,0 @@
-method,N,N_ref,cauchy_coeff_error,cauchy_grid_error,total_time_sec,status
-VoltMat,30000,30300,2.6645352591003757e-15,1.13420384195706e-12,3.8074647,ok
-GutlebOlver,30000,30300,5.033414533316788e-42,0.0,4.5422984,ok
