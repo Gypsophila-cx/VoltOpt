@@ -25,6 +25,36 @@ clear; clc; close all;
 timePart = "total";
 timeStat = "min";
 
+%% Reference-label options
+% xShiftDecade:
+%   > 0 moves the string to the right on log-log axes
+%   < 0 moves the string to the left
+%
+% yShiftDecade:
+%   > 0 moves the string upward on log-log axes
+%   < 0 moves the string downward
+%
+% fontSize:
+%   font size of the corresponding string
+%
+% xIndexFromEnd and yIndexFromEnd:
+%   choose the base anchor point from the tail curve.
+%   For example, 8 means the 8-th point from the end.
+
+vmRefText = struct();
+vmRefText.xShiftDecade = -0.1;
+vmRefText.yShiftDecade = -0.5;
+vmRefText.fontSize     = 12;
+vmRefText.xIndexFromEnd = 8;
+vmRefText.yIndexFromEnd = 12;
+
+goRefText = struct();
+goRefText.xShiftDecade = -0.2;
+goRefText.yShiftDecade = 0.3;
+goRefText.fontSize     = 12;
+goRefText.xIndexFromEnd = 8;
+goRefText.yIndexFromEnd = 12;
+
 %% Paths
 scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
@@ -107,7 +137,6 @@ set(gca, ...
 
 box on;
 
-
 pdfFile1 = fullfile(figDir, 'ex4_depth_error_N200.pdf');
 pngFile1 = fullfile(figDir, 'ex4_depth_error_N200.png');
 
@@ -131,10 +160,10 @@ loglog(goDepthTime, goTime,  ...
 tailCount = 40;
 
 add_reference_curve(vmDepthTime, vmTime, tailCount, ...
-    @(n) n.^2 .* log(n), '$O(n^2\log n)$', 1.5);
+    @(n) n.^2 .* log(n), '$\mathcal{O}(n^2\log n)$', 1.5, vmRefText);
 
 add_reference_curve(goDepthTime, goTime, tailCount, ...
-    @(n) n.^3, '$O(n^3)$', 0.8);
+    @(n) n.^3, '$\mathcal{O}(n^3)$', 0.8, goRefText);
 
 xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
 
@@ -253,7 +282,7 @@ function col = benchmark_column_name(part, stat)
     col = char(col);
 end
 
-function add_reference_curve(depth, timeValue, tailCount, rateFun, labelText, offsetFactor)
+function add_reference_curve(depth, timeValue, tailCount, rateFun, labelText, offsetFactor, textOpt)
     depth = depth(:);
     timeValue = timeValue(:);
 
@@ -282,12 +311,31 @@ function add_reference_curve(depth, timeValue, tailCount, rateFun, labelText, of
         'LineWidth', 1.2, ...
         'HandleVisibility', 'off');
 
-    xText = tailDepth(end-8);
-    yText = refTime(end-10);
+    if ~isfield(textOpt, 'xShiftDecade')
+        textOpt.xShiftDecade = 0.0;
+    end
+    if ~isfield(textOpt, 'yShiftDecade')
+        textOpt.yShiftDecade = 0.0;
+    end
+    if ~isfield(textOpt, 'fontSize')
+        textOpt.fontSize = 10;
+    end
+    if ~isfield(textOpt, 'xIndexFromEnd')
+        textOpt.xIndexFromEnd = 8;
+    end
+    if ~isfield(textOpt, 'yIndexFromEnd')
+        textOpt.yIndexFromEnd = 10;
+    end
+
+    xIdx = max(1, numel(tailDepth) - textOpt.xIndexFromEnd + 1);
+    yIdx = max(1, numel(refTime)   - textOpt.yIndexFromEnd + 1);
+
+    xText = tailDepth(xIdx) * 10^(textOpt.xShiftDecade);
+    yText = refTime(yIdx)   * 10^(textOpt.yShiftDecade);
 
     text(xText, yText, ['  ', labelText], ...
         'Interpreter', 'latex', ...
-        'FontSize', 10, ...
+        'FontSize', textOpt.fontSize, ...
         'HorizontalAlignment', 'left', ...
         'VerticalAlignment', 'middle');
 end

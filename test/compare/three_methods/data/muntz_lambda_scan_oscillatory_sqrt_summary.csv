@@ -1,8 +1,0 @@
-muntz_lambda,best_N,best_linf_error,best_total_time,best_consistency_linf,notes
-2.50000000000000000e-01,384,3.28181926079196273e-13,7.26183999999999996e-02,3.07309733216243330e-13,Muntz/fractional Jacobi collocation; lambda_frac=0.25; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=3.073e-13
-3.33333333333000026e-01,1024,2.05075739586486157e-10,8.67010799999999970e-01,5.63993296509579523e-14,Muntz/fractional Jacobi collocation; lambda_frac=0.333333333333; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=5.640e-14
-4.00000000000000022e-01,1024,4.27286758282360162e-09,5.40674299999999941e-01,5.44425615700561139e-14,Muntz/fractional Jacobi collocation; lambda_frac=0.4; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=5.444e-14
-5.00000000000000000e-01,192,1.81465953374981837e-13,2.14226000000000000e-02,4.02178290670462957e-14,Muntz/fractional Jacobi collocation; lambda_frac=0.5; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=4.022e-14
-6.66666666667000030e-01,1024,5.32174517073427038e-06,8.00173299999999976e-01,1.14036089192458626e-11,Muntz/fractional Jacobi collocation; lambda_frac=0.666666666667; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=1.140e-11
-7.50000000000000000e-01,1024,2.27902823530914321e-05,6.57699199999999928e-01,1.18838177173190632e-10,Muntz/fractional Jacobi collocation; lambda_frac=0.75; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=1.188e-10
-1.00000000000000000e+00,1024,3.49233083558911968e-04,5.18851199999999957e-01,1.00613717366263011e-08,Muntz/fractional Jacobi collocation; lambda_frac=1; alpha=-0.500; beta=-0.500; qorder=128; ratio_limit=0; consistency=1.006e-08

@@ -35,8 +35,6 @@
 # Output:
 #   examples/ex7_weaksingular/data/ex7_VoltMat_error.csv
 #   examples/ex7_weaksingular/data/ex7_VoltMat_timing.csv
-#   The legacy path examples/ex7_weaksingular/data/ex7_VoltMat_results.csv is
-#   also refreshed as an error-only copy for compatibility.
 #
 # Run from the VoltOpt project root:
 #   julia --project=. examples/ex7_weaksingular/ex7_VoltMat.jl
@@ -809,7 +807,6 @@ function run_error(
     Ns_error,
     xgrid,
     csv_path::AbstractString,
-    legacy_results_path::AbstractString,
     resume::Bool,
     compute_cond::Bool,
     mu::Float64,
@@ -921,9 +918,7 @@ function run_error(
         end
     end
 
-    cp(csv_path, legacy_results_path; force = true)
     println("wrote ", csv_path)
-    println("wrote legacy error copy ", legacy_results_path)
     summary = csv_summary(csv_path; expect_cond_nan = !compute_cond)
     print_summary(summary, csv_path)
     return summary
@@ -1074,7 +1069,6 @@ function main()
     mkpath(data_dir)
     error_csv_path = joinpath(data_dir, "ex7_VoltMat_error.csv")
     timing_csv_path = joinpath(data_dir, "ex7_VoltMat_timing.csv")
-    legacy_results_path = joinpath(data_dir, "ex7_VoltMat_results.csv")
 
     println("ex7_VoltMat.jl")
     println("run mode = ", run_mode)
@@ -1094,7 +1088,6 @@ function main()
             Ns_error,
             xgrid,
             error_csv_path,
-            legacy_results_path,
             resume,
             compute_cond,
             mu,

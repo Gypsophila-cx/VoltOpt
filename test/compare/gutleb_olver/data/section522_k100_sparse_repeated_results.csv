@@ -1,2 +1,0 @@
-N,kerneldepth,repeats,warmup_done,min_time,median_time,mean_time,rhs_validation_error,tau_residual,body_residual_relative,max_abs_error,raw_storage,raw_nnz,raw_lower_bw,raw_upper_bw,body_storage,body_nnz,body_lower_bw,body_upper_bw,final_storage,final_nnz,final_lower_bw,final_upper_bw,status,elapsed_times
-128,12,5,true,0.0057608,0.006073,0.00630106,1.901613757127052e-6,4.70264109582792e-11,1.1167327725282074e-7,9.404194067919036e-8,BandedMatrix,2812,11,11,BandedMatrix,3273,12,14,SparseMatrixCSC,3388,13,127,pass,0.0057608;0.0058493;0.0070898;0.006073;0.0067324

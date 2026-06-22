@@ -1,3 +1,0 @@
-method,best_N_by_cauchy_ref,best_cauchy_ref_linf,best_successive_cauchy_linf,best_total_time,max_N,final_residual_linf,cross_method_linf_at_common_maxN,cross_method_l2_at_common_maxN,notes
-our_coeffspace,768,6.11385608806358505e-10,6.11385608806358505e-10,1.19695300000000004e-01,1024,3.33066907387546962e-16,1.41012848176025329e-07,2.73079858119842630e-08,reference_level
-muntz_collocation,768,7.10887126942338909e-10,7.10887126942338909e-10,3.33942799999999984e-01,1024,3.10862446895043831e-15,1.41012848176025329e-07,2.73079858119842630e-08,reference_level
