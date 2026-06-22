@@ -15,23 +15,28 @@ function find_project_root(start_dir::AbstractString)
     end
 end
 
-const SCRIPT_DIR = @__DIR__
-const PROJECT_ROOT = find_project_root(SCRIPT_DIR)
-const GUTLEB_OLVER_PROJECT = joinpath(PROJECT_ROOT, "others", "GutlebOlver")
-const OUTPUT_CSV = joinpath(SCRIPT_DIR, "bench_end2end_fixedN_varyC.csv")
+# ============================================================
+# Paths
+# ============================================================
 
-include(joinpath(PROJECT_ROOT, "src", "VoltOpt.jl"))
+scriptDir = @__DIR__
+projectRoot = find_project_root(scriptDir)
+gutlebOlverProject = joinpath(projectRoot, "others", "GutlebOlver")
+dataDir = joinpath(@__DIR__, "data")
+mkpath(dataDir)
+
+include(joinpath(projectRoot, "src", "VoltOpt.jl"))
 using .VoltOpt
 
-Pkg.activate(GUTLEB_OLVER_PROJECT; io=devnull)
+Pkg.activate(gutlebOlverProject; io=devnull)
 using GutlebOlver
 
-const DEFAULT_N = 1000
-const DEFAULT_SIZES = [4, 8, 16, 32, 64, 128, 256]
-const DEFAULT_SAMPLES = parse(Int, get(ENV, "SMOOTH_BENCH_SAMPLES", "3"))
-const DEFAULT_SECONDS = parse(Float64, get(ENV, "SMOOTH_BENCH_SECONDS", "10.0"))
-const DEFAULT_CHEB_COEFF_TOL = 64eps(Float64)
-const DEFAULT_MATRIX_TOL = 64eps(Float64)
+defaultN = 1000
+defaultSizes = [4, 8, 16, 32, 64, 128, 256]
+defaultSamples = parse(Int, get(ENV, "SMOOTH_BENCH_SAMPLES", "3"))
+defaultSeconds = parse(Float64, get(ENV, "SMOOTH_BENCH_SECONDS", "10.0"))
+defaultChebCoeffTol = 64eps(Float64)
+defaultMatrixTol = 64eps(Float64)
 
 Kexp(x, y) = exp(-x * y)
 Khat_cheb(x, y) = Kexp(x, (1 + x) * (1 + y) / 2 - 1)
@@ -53,7 +58,7 @@ function fixed_size_coeffmat(C::AbstractMatrix{<:Real}, nrow::Int, ncol::Int)
     return Cout
 end
 
-function build_cheb_coeffs(Csize::Int; cheb_coeff_tol::Float64=DEFAULT_CHEB_COEFF_TOL)
+function build_cheb_coeffs(Csize::Int; cheb_coeff_tol::Float64=defaultChebCoeffTol)
     Craw = VoltOpt.adaptive_cheb2_coeffmat(Khat_cheb; tol=cheb_coeff_tol)
     return fixed_size_coeffmat(Craw, Csize, Csize)
 end
@@ -61,8 +66,8 @@ end
 function build_voltmat_cheb_end2end(
     N::Int,
     Csize::Int;
-    cheb_coeff_tol::Float64=DEFAULT_CHEB_COEFF_TOL,
-    matrix_tol::Float64=DEFAULT_MATRIX_TOL,
+    cheb_coeff_tol::Float64=defaultChebCoeffTol,
+    matrix_tol::Float64=defaultMatrixTol,
     use_fft_top::Bool=true,
     tail_half_bandwidth::Union{Nothing,Int}=nothing,
 )
@@ -91,7 +96,7 @@ function median_sorted(values::Vector{Float64})
     return isodd(n) ? values[div(n + 1, 2)] : 0.5 * (values[div(n, 2)] + values[div(n, 2) + 1])
 end
 
-function benchmark_call(f; samples::Int=DEFAULT_SAMPLES, seconds::Float64=DEFAULT_SECONDS)
+function benchmark_call(f; samples::Int=defaultSamples, seconds::Float64=defaultSeconds)
     GC.gc()
     bench = @benchmarkable ($f)() evals=1
     all_times = Float64[]
@@ -112,9 +117,9 @@ function benchmark_call(f; samples::Int=DEFAULT_SAMPLES, seconds::Float64=DEFAUL
     isempty(all_times) && error("BenchmarkTools returned no samples")
     sort!(all_times)
     return (
-        min_ms=first(all_times) * 1.0e-6,
-        median_ms=median_sorted(all_times) * 1.0e-6,
-        mean_ms=(sum(all_times) / length(all_times)) * 1.0e-6,
+        time_min_sec=first(all_times) * 1.0e-9,
+        time_median_sec=median_sorted(all_times) * 1.0e-9,
+        time_mean_sec=(sum(all_times) / length(all_times)) * 1.0e-9,
         memory_MiB=memory / 1024.0^2,
         allocs=allocs,
         samples_run=length(all_times),
@@ -157,202 +162,257 @@ function matrix_bandwidths(A)
     end
 end
 
-function success_method_result(build_function, samples::Int, seconds::Float64)
+function success_method_result(method::AbstractString, build_function, samples::Int, seconds::Float64)
     A = build_function()
     lower_bw, upper_bw = matrix_bandwidths(A)
     stat = benchmark_call(build_function; samples=samples, seconds=seconds)
+    entries = structural_nnz(A)
     return (
         ok=true,
-        min_ms=stat.min_ms,
-        median_ms=stat.median_ms,
-        mean_ms=stat.mean_ms,
+        method=method,
+        time_min_sec=stat.time_min_sec,
+        time_median_sec=stat.time_median_sec,
+        time_mean_sec=stat.time_mean_sec,
         memory_MiB=stat.memory_MiB,
         allocs=stat.allocs,
         samples_run=stat.samples_run,
-        nnz=structural_nnz(A),
+        nnz=entries,
+        stored_entries=entries,
+        packed_size=missing,
         rows=size(A, 1),
         cols=size(A, 2),
         bw_lower=lower_bw,
         bw_upper=upper_bw,
+        output_format=string(typeof(A)),
+        method_status="success",
         error_message="",
     )
 end
 
-function failed_method_result(err)
+function failed_method_result(method::AbstractString, err)
     return (
         ok=false,
-        min_ms="",
-        median_ms="",
-        mean_ms="",
-        memory_MiB="",
-        allocs="",
+        method=method,
+        time_min_sec=missing,
+        time_median_sec=missing,
+        time_mean_sec=missing,
+        memory_MiB=missing,
+        allocs=missing,
         samples_run=0,
-        nnz="",
-        rows="",
-        cols="",
-        bw_lower="",
-        bw_upper="",
+        nnz=missing,
+        stored_entries=missing,
+        packed_size=missing,
+        rows=missing,
+        cols=missing,
+        bw_lower=missing,
+        bw_upper=missing,
+        output_format=missing,
+        method_status="failed",
         error_message=sprint(showerror, err),
     )
 end
 
-function method_result(build_function, samples::Int, seconds::Float64)
+function method_result(method::AbstractString, build_function, samples::Int, seconds::Float64)
     try
-        return success_method_result(build_function, samples, seconds)
+        return success_method_result(method, build_function, samples, seconds)
     catch err
-        return failed_method_result(err)
+        return failed_method_result(method, err)
     end
 end
 
-function row_status(cheb, gutleb, bandwidth_match::Bool)
-    cheb.ok && gutleb.ok && bandwidth_match && return "success"
-    cheb.ok && gutleb.ok && !bandwidth_match && return "bandwidth_mismatch"
+function row_status(cheb, gutleb)
+    cheb.ok && gutleb.ok && return "success"
     cheb.ok && !gutleb.ok && return "gutleb_failed"
     !cheb.ok && gutleb.ok && return "cheb_failed"
     return "both_failed"
 end
 
-function row_error_message(cheb, gutleb, bandwidth_match::Bool)
+function row_error_message(cheb, gutleb)
     parts = String[]
     cheb.ok || push!(parts, "Cheb: $(cheb.error_message)")
     gutleb.ok || push!(parts, "GutlebOlver: $(gutleb.error_message)")
-    cheb.ok && gutleb.ok && !bandwidth_match &&
-        push!(parts, "lower bandwidth mismatch: cheb=$(cheb.bw_lower), gutleb=$(gutleb.bw_lower)")
     return join(parts, " | ")
 end
 
-function benchmark_row(N::Int, Csize::Int, samples::Int, seconds::Float64)
+function bandwidth_status(cheb, gutleb)
+    cheb.ok && gutleb.ok || return "unavailable"
+    return cheb.bw_lower == gutleb.bw_lower ? "match" : "mismatch"
+end
+
+function bandwidth_message(cheb, gutleb)
+    cheb.ok && gutleb.ok || return "bandwidth comparison unavailable because one or more methods failed"
+    cheb.bw_lower == gutleb.bw_lower && return ""
+    return "lower bandwidth mismatch: cheb=$(cheb.bw_lower), gutleb=$(gutleb.bw_lower)"
+end
+
+function csv_row(benchmark::AbstractString, N::Int, Csize::Int, result,
+                 status::AbstractString, error_message::AbstractString,
+                 bandwidth_status_value::AbstractString,
+                 bandwidth_message_value::AbstractString,
+                 samples::Int, seconds::Float64)
+    return (
+        benchmark=benchmark,
+        N=N,
+        C_rows=Csize,
+        C_cols=Csize,
+        C_size=Csize * Csize,
+        method=result.method,
+        matrix_rows=result.rows,
+        matrix_cols=result.cols,
+        nnz=result.nnz,
+        stored_entries=result.stored_entries,
+        packed_size=result.packed_size,
+        output_format=result.output_format,
+        lower_bw=result.bw_lower,
+        upper_bw=result.bw_upper,
+        t_build=result.time_min_sec,
+        t_build_median=result.time_median_sec,
+        t_build_mean=result.time_mean_sec,
+        t_total=result.time_min_sec,
+        t_total_median=result.time_median_sec,
+        t_total_mean=result.time_mean_sec,
+        memory_MiB=result.memory_MiB,
+        allocs=result.allocs,
+        samples_requested=samples,
+        samples_run=result.samples_run,
+        seconds=seconds,
+        bandwidth_match=bandwidth_status_value == "match",
+        bandwidth_status=bandwidth_status_value,
+        bandwidth_message=bandwidth_message_value,
+        requested_bandwidth=Csize,
+        actual_bandwidth=result.bw_lower,
+        method_status=result.method_status,
+        status=status,
+        error_message=error_message,
+        method_error_message=result.error_message,
+    )
+end
+
+function benchmark_rows(N::Int, Csize::Int, samples::Int, seconds::Float64)
     cheb = method_result(
+        "smooth_cheb_fft_convolution",
         () -> build_voltmat_cheb_end2end(N, Csize),
         samples,
         seconds,
     )
     gutleb = method_result(
+        "gutleb_olver_strictband",
         () -> build_gutleb_olver_end2end(N, Csize),
         samples,
         seconds,
     )
     bandwidth_match = cheb.ok && gutleb.ok && cheb.bw_lower == gutleb.bw_lower
-    status = row_status(cheb, gutleb, bandwidth_match)
+    bw_status = bandwidth_status(cheb, gutleb)
+    bw_message = bandwidth_message(cheb, gutleb)
+    status = row_status(cheb, gutleb)
+    err = row_error_message(cheb, gutleb)
 
     @printf("N=%d, C=%d\n", N, Csize)
     @printf("Cheb:   lower bw = %s, upper bw = %s\n", cheb.bw_lower, cheb.bw_upper)
     @printf("Gutleb: lower bw = %s, upper bw = %s\n", gutleb.bw_lower, gutleb.bw_upper)
-    bandwidth_match || @warn "Lower bandwidth mismatch or failed bandwidth check" N Csize cheb_bw_lower=cheb.bw_lower gutleb_bw_lower=gutleb.bw_lower status
+    bw_status == "match" || @warn "Lower bandwidth mismatch or unavailable bandwidth check" N Csize cheb_bw_lower=cheb.bw_lower gutleb_bw_lower=gutleb.bw_lower status bandwidth_status=bw_status
 
     return (
-        benchmark="fixedN_varyC",
-        N=N,
-        C_rows=Csize,
-        C_cols=Csize,
-        cheb_min_ms=cheb.min_ms,
-        cheb_median_ms=cheb.median_ms,
-        cheb_mean_ms=cheb.mean_ms,
-        cheb_memory_MiB=cheb.memory_MiB,
-        cheb_allocs=cheb.allocs,
-        cheb_samples_run=cheb.samples_run,
-        cheb_nnz=cheb.nnz,
-        cheb_rows=cheb.rows,
-        cheb_cols=cheb.cols,
-        cheb_bw_lower=cheb.bw_lower,
-        cheb_bw_upper=cheb.bw_upper,
-        gutleb_min_ms=gutleb.min_ms,
-        gutleb_median_ms=gutleb.median_ms,
-        gutleb_mean_ms=gutleb.mean_ms,
-        gutleb_memory_MiB=gutleb.memory_MiB,
-        gutleb_allocs=gutleb.allocs,
-        gutleb_samples_run=gutleb.samples_run,
-        gutleb_nnz=gutleb.nnz,
-        gutleb_rows=gutleb.rows,
-        gutleb_cols=gutleb.cols,
-        gutleb_bw_lower=gutleb.bw_lower,
-        gutleb_bw_upper=gutleb.bw_upper,
-        bandwidth_match=bandwidth_match,
-        samples_requested=samples,
-        seconds=seconds,
-        status=status,
-        error_message=row_error_message(cheb, gutleb, bandwidth_match),
+        csv_row("fixedN_varyC", N, Csize, cheb, status, err, bw_status, bw_message, samples, seconds),
+        csv_row("fixedN_varyC", N, Csize, gutleb, status, err, bw_status, bw_message, samples, seconds),
     )
 end
 
-const CSV_HEADER = (
+csvHeader = (
     :benchmark,
     :N,
     :C_rows,
     :C_cols,
-    :cheb_min_ms,
-    :cheb_median_ms,
-    :cheb_mean_ms,
-    :cheb_memory_MiB,
-    :cheb_allocs,
-    :cheb_samples_run,
-    :cheb_nnz,
-    :cheb_rows,
-    :cheb_cols,
-    :cheb_bw_lower,
-    :cheb_bw_upper,
-    :gutleb_min_ms,
-    :gutleb_median_ms,
-    :gutleb_mean_ms,
-    :gutleb_memory_MiB,
-    :gutleb_allocs,
-    :gutleb_samples_run,
-    :gutleb_nnz,
-    :gutleb_rows,
-    :gutleb_cols,
-    :gutleb_bw_lower,
-    :gutleb_bw_upper,
-    :bandwidth_match,
+    :C_size,
+    :method,
+    :matrix_rows,
+    :matrix_cols,
+    :nnz,
+    :stored_entries,
+    :packed_size,
+    :output_format,
+    :lower_bw,
+    :upper_bw,
+    :t_build,
+    :t_build_median,
+    :t_build_mean,
+    :t_total,
+    :t_total_median,
+    :t_total_mean,
+    :memory_MiB,
+    :allocs,
     :samples_requested,
+    :samples_run,
     :seconds,
+    :bandwidth_match,
+    :bandwidth_status,
+    :bandwidth_message,
+    :requested_bandwidth,
+    :actual_bandwidth,
+    :method_status,
     :status,
     :error_message,
+    :method_error_message,
 )
 
-function csv_escape(x)
-    text = x === nothing ? "" : string(x)
+function csv_cell(x)
+    (x === nothing || x === missing) && return ""
+    text = string(x)
     if occursin(',', text) || occursin('"', text) || occursin('\n', text) || occursin('\r', text)
         return "\"" * replace(text, "\"" => "\"\"") * "\""
     end
     return text
 end
 
-function write_csv(path::AbstractString, rows::Vector{<:NamedTuple})
-    mkpath(dirname(path))
-    open(path, "w") do io
-        println(io, join(string.(CSV_HEADER), ","))
-        for row in rows
-            println(io, join((csv_escape(getproperty(row, col)) for col in CSV_HEADER), ","))
-        end
-    end
-    return path
+function write_csv_header(io)
+    println(io, join(string.(csvHeader), ","))
+    flush(io)
+end
+
+function write_csv_row(io, row::NamedTuple)
+    println(io, join((csv_cell(getproperty(row, col)) for col in csvHeader), ","))
+    flush(io)
 end
 
 function bench_end2end_fixedN_varyC(;
-    N::Int=parse(Int, get(ENV, "SMOOTH_BENCH_N", string(DEFAULT_N))),
-    sizes::Vector{Int}=parse_int_list(get(ENV, "SMOOTH_BENCH_SIZES", ""), DEFAULT_SIZES),
-    samples::Int=DEFAULT_SAMPLES,
-    seconds::Float64=DEFAULT_SECONDS,
-    output_csv::String=OUTPUT_CSV,
+    N::Int=parse(Int, get(ENV, "SMOOTH_BENCH_N", string(defaultN))),
+    sizes::Vector{Int}=parse_int_list(get(ENV, "SMOOTH_BENCH_SIZES", ""), defaultSizes),
+    samples::Int=defaultSamples,
+    seconds::Float64=defaultSeconds,
+    output_csv::String=joinpath(dataDir, "bench_smooth_fixedN_varyC.csv"),
 )
-    rows = NamedTuple[]
+    results = NamedTuple[]
     @printf("Smooth Volterra end-to-end benchmark: fixed N, varying C\n")
     @printf("N=%d, sizes=%s\n", N, sizes)
     @printf("samples=%d, seconds=%.3f\n", samples, seconds)
+    @printf("scriptDir=%s\n", scriptDir)
+    @printf("projectRoot=%s\n", projectRoot)
+    @printf("dataDir=%s\n", dataDir)
     @printf("output_csv=%s\n", output_csv)
 
-    for Csize in sizes
-        row = benchmark_row(N, Csize, samples, seconds)
-        push!(rows, row)
-        @printf("  Cheb median ms   = %s, samples = %s\n", row.cheb_median_ms, row.cheb_samples_run)
-        @printf("  Gutleb median ms = %s, samples = %s\n", row.gutleb_median_ms, row.gutleb_samples_run)
-        @printf("  bandwidth_match  = %s, status = %s\n\n", row.bandwidth_match, row.status)
-        write_csv(output_csv, rows)
+    mkpath(dirname(output_csv))
+    open(output_csv, "w") do io
+        write_csv_header(io)
+        for Csize in sizes
+            rows = benchmark_rows(N, Csize, samples, seconds)
+            for row in rows
+                push!(results, row)
+                write_csv_row(io, row)
+                @printf(
+                    "  %-28s min = %s s, median = %s s, samples = %s, status = %s\n",
+                    row.method,
+                    row.t_build,
+                    row.t_build_median,
+                    row.samples_run,
+                    row.status,
+                )
+            end
+            @printf("  bandwidth_status = %s\n\n", rows[1].bandwidth_status)
+        end
     end
 
-    written = write_csv(output_csv, rows)
-    @printf("CSV saved to: %s\n", written)
-    return rows
+    @printf("CSV saved to: %s\n", output_csv)
+    return results
 end
 
 bench_end2end_fixedN_varyC()

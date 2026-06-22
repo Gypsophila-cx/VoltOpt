@@ -1,0 +1,259 @@
+% Plot weak singular benchmark timing curves.
+%
+% Input files:
+%   data/bench_weak_fixedC_varyN.csv
+%   data/bench_weak_fixedN_varyC.csv
+%
+% Output files:
+%   figures/weak_fixedC_varyN_timing.pdf
+%   figures/weak_fixedC_varyN_timing.png
+%   figures/weak_fixedN_varyC_timing.pdf
+%   figures/weak_fixedN_varyC_timing.png
+
+clear; clc; close all;
+
+%% Paths
+scriptDir = fileparts(mfilename('fullpath'));
+if isempty(scriptDir)
+    scriptDir = pwd;
+end
+
+dataDir = fullfile(scriptDir, 'data');
+figDir  = fullfile(scriptDir, 'figures');
+
+if ~exist(figDir, 'dir')
+    mkdir(figDir);
+end
+
+fixedCFile = fullfile(dataDir, 'bench_weak_fixedC_varyN.csv');
+fixedNFile = fullfile(dataDir, 'bench_weak_fixedN_varyC.csv');
+
+if ~isfile(fixedCFile)
+    error('Cannot find file: %s', fixedCFile);
+end
+
+if ~isfile(fixedNFile)
+    error('Cannot find file: %s', fixedNFile);
+end
+
+T_fixedC = readtable(fixedCFile);
+T_fixedN = readtable(fixedNFile);
+
+%% Plot options
+timeCol = 't_total';
+
+lineWidthMain  = 2.0;
+lineWidthRef   = 1.6;
+fontSize       = 12;
+labelFontSize  = 12;
+legendFontSize = 12;
+
+%% Reference-line options for fixed C, varying N
+refN_power   = 2;
+refN_tailNum = 6;
+refN_scale   = 0.75;
+
+% O(N^2) 字符串单独调节参数
+textN_string   = '$\mathcal{O}(N^2)$';
+textN_fontSize = 12;
+
+% 自动位置调节参数
+textN_xShift = 1.5;
+textN_yShift = 0.1;
+
+% 手动位置。留空则自动放置。
+textN_pos = [];
+% textN_pos = [5000, 4.0];
+
+%% Reference-line options for fixed N, varying n
+refn_power   = 1;
+refn_tailNum = 4;
+refn_scale   = 0.85;
+
+% O(n) 字符串单独调节参数
+textn_string   = '$\mathcal{O}(n)$';
+textn_fontSize = 12;
+
+% 自动位置调节参数
+textn_xShift = 1.0;
+textn_yShift = 0.6;
+
+% 手动位置。留空则自动放置。
+textn_pos = [];
+% textn_pos = [250, 0.5];
+
+%% Keep successful rows only
+if ismember('status', T_fixedC.Properties.VariableNames)
+    T_fixedC = T_fixedC(strcmp(string(T_fixedC.status), "success"), :);
+end
+
+if ismember('status', T_fixedN.Properties.VariableNames)
+    T_fixedN = T_fixedN(strcmp(string(T_fixedN.status), "success"), :);
+end
+
+if ~ismember(timeCol, T_fixedC.Properties.VariableNames)
+    error('Column %s does not exist in %s.', timeCol, fixedCFile);
+end
+
+if ~ismember(timeCol, T_fixedN.Properties.VariableNames)
+    error('Column %s does not exist in %s.', timeCol, fixedNFile);
+end
+
+%% Data: fixed C, varying N
+N = T_fixedC.N;
+timeN = T_fixedC.(timeCol);
+
+validN = isfinite(N) & isfinite(timeN) & N > 0 & timeN > 0;
+N = N(validN);
+timeN = timeN(validN);
+
+[N, idxN] = sort(N);
+timeN = timeN(idxN);
+
+%% Figure 1: fixed C, varying N
+fig1 = figure('Color', 'w');
+hold on;
+
+plot(N, timeN, '-', ...
+    'LineWidth', lineWidthMain, ...
+    'DisplayName', 'Weak VoltMat');
+
+[xRefN, yRefN] = makeTailReferenceLine( ...
+    N, timeN, refN_power, refN_tailNum, refN_scale);
+
+plot(xRefN, yRefN, 'k--', ...
+    'LineWidth', lineWidthRef, ...
+    'HandleVisibility', 'off');
+
+if isempty(textN_pos)
+    textN_x = xRefN(end) / textN_xShift;
+    textN_y = yRefN(end) * textN_yShift;
+else
+    textN_x = textN_pos(1);
+    textN_y = textN_pos(2);
+end
+
+text(textN_x, textN_y, textN_string, ...
+    'Interpreter', 'latex', ...
+    'FontSize', textN_fontSize, ...
+    'HorizontalAlignment', 'center', ...
+    'VerticalAlignment', 'bottom');
+
+xlabel('$N$', ...
+    'Interpreter', 'latex', ...
+    'FontSize', labelFontSize);
+
+ylabel('time (sec)', ...
+    'Interpreter', 'latex', ...
+    'FontSize', labelFontSize);
+
+ax = gca;
+set(ax, ...
+    'XScale', 'log', ...
+    'YScale', 'log', ...
+    'FontSize', fontSize, ...
+    'TickLabelInterpreter', 'latex');
+
+grid on;
+box on;
+
+exportgraphics(fig1, fullfile(figDir, 'weak_fixedC_varyN_timing.pdf'), ...
+    'ContentType', 'vector');
+
+exportgraphics(fig1, fullfile(figDir, 'weak_fixedC_varyN_timing.png'), ...
+    'Resolution', 300);
+
+%% Data: fixed N, varying n
+if ismember('C_rows', T_fixedN.Properties.VariableNames)
+    n = T_fixedN.C_rows;
+elseif ismember('n', T_fixedN.Properties.VariableNames)
+    n = T_fixedN.n;
+elseif ismember('C', T_fixedN.Properties.VariableNames)
+    n = T_fixedN.C;
+else
+    error('Cannot find kernel-size column. Expected C_rows, n, or C.');
+end
+
+timen = T_fixedN.(timeCol);
+
+validn = isfinite(n) & isfinite(timen) & n > 0 & timen > 0;
+n = n(validn);
+timen = timen(validn);
+
+[n, idxn] = sort(n);
+timen = timen(idxn);
+
+%% Figure 2: fixed N, varying n
+fig2 = figure('Color', 'w');
+hold on;
+
+plot(n, timen, '-', ...
+    'LineWidth', lineWidthMain, ...
+    'DisplayName', 'Weak VoltMat');
+
+[xRefn, yRefn] = makeTailReferenceLine( ...
+    n, timen, refn_power, refn_tailNum, refn_scale);
+
+plot(xRefn, yRefn, 'k--', ...
+    'LineWidth', lineWidthRef, ...
+    'HandleVisibility', 'off');
+
+if isempty(textn_pos)
+    textn_x = xRefn(end) / textn_xShift;
+    textn_y = yRefn(end) * textn_yShift;
+else
+    textn_x = textn_pos(1);
+    textn_y = textn_pos(2);
+end
+
+text(textn_x, textn_y, textn_string, ...
+    'Interpreter', 'latex', ...
+    'FontSize', textn_fontSize, ...
+    'HorizontalAlignment', 'center', ...
+    'VerticalAlignment', 'bottom');
+
+xlabel('$n$', ...
+    'Interpreter', 'latex', ...
+    'FontSize', labelFontSize);
+
+ylabel('time (sec)', ...
+    'Interpreter', 'latex', ...
+    'FontSize', labelFontSize);
+
+ax = gca;
+set(ax, ...
+    'XScale', 'log', ...
+    'YScale', 'log', ...
+    'FontSize', fontSize, ...
+    'TickLabelInterpreter', 'latex');
+
+grid on;
+box on;
+
+exportgraphics(fig2, fullfile(figDir, 'weak_fixedN_varyC_timing.pdf'), ...
+    'ContentType', 'vector');
+
+exportgraphics(fig2, fullfile(figDir, 'weak_fixedN_varyC_timing.png'), ...
+    'Resolution', 300);
+
+fprintf('Saved figures to: %s\n', figDir);
+
+%% Local helper function
+function [xRef, yRef] = makeTailReferenceLine(x, y, power, tailNum, scaleFactor)
+    x = x(:);
+    y = y(:);
+
+    m = numel(x);
+    tailNum = min(tailNum, m);
+
+    tailIdx = (m - tailNum + 1):m;
+    xTail = x(tailIdx);
+    yTail = y(tailIdx);
+
+    % Fit log(y) = log(a) + power * log(x) on the tail points.
+    loga = mean(log(yTail) - power * log(xTail));
+    a = exp(loga) * scaleFactor;
+
+    xRef = xTail;
+    yRef = a * xRef.^power;
+end

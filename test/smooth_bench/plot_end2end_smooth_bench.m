@@ -1,84 +1,160 @@
-% plot_end2end_smooth_bench_loglog.m
-% Log-log plots for end-to-end construction time:
-%   VoltMat-Cheb vs Gutleb--Olver
+% Plot smooth benchmark timing curves.
 %
-% Features:
-%   - y-axis in seconds
-%   - log-log plots
-%   - no markers
-%   - grid on
-%   - black dashed reference lines on the tail
-%   - reference lines are NOT anchored at the last data point
-%   - complexity labels are placed beside dashed lines
-%   - dashed reference lines are hidden from legend
+% Input files:
+%   data/bench_smooth_fixedC_varyN.csv
+%   data/bench_smooth_fixedN_varyC.csv
+%
+% Output files:
+%   figures/smooth_fixedC_varyN_timing.pdf
+%   figures/smooth_fixedC_varyN_timing.png
+%   figures/smooth_fixedN_varyC_timing.pdf
+%   figures/smooth_fixedN_varyC_timing.png
 
 clear; clc; close all;
 
-%% Folder
+%% Paths
+scriptDir = fileparts(mfilename('fullpath'));
+if isempty(scriptDir)
+    scriptDir = pwd;
+end
 
-bench_dir = 'D:\Projects\VoltOpt\test\smooth_bench';
+dataDir = fullfile(scriptDir, 'data');
+figDir = fullfile(scriptDir, 'figures');
 
-csv_fixedC = fullfile(bench_dir, 'bench_end2end_fixedC_varyN.csv');
-csv_fixedN = fullfile(bench_dir, 'bench_end2end_fixedN_varyC.csv');
+if ~exist(figDir, 'dir')
+    mkdir(figDir);
+end
+
+fixedCFile = fullfile(dataDir, 'bench_smooth_fixedC_varyN.csv');
+fixedNFile = fullfile(dataDir, 'bench_smooth_fixedN_varyC.csv');
+
+if ~isfile(fixedCFile)
+    error('Cannot find smooth fixed-C benchmark CSV: %s', fixedCFile);
+end
+
+if ~isfile(fixedNFile)
+    error('Cannot find smooth fixed-N benchmark CSV: %s', fixedNFile);
+end
+
+T_fixedC = readtable(fixedCFile);
+T_fixedN = readtable(fixedNFile);
+
+require_columns(T_fixedC, {'N', 'method', 't_total', 'status'}, fixedCFile);
+require_columns(T_fixedN, {'C_rows', 'method', 't_total', 'status'}, fixedNFile);
+
+warn_non_success(T_fixedC, fixedCFile);
+warn_non_success(T_fixedN, fixedNFile);
+
+T_fixedC = keep_success_rows(T_fixedC);
+T_fixedN = keep_success_rows(T_fixedN);
 
 %% Global style
-
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
 set(groot, 'defaultAxesFontSize', 15);
 set(groot, 'defaultLineLineWidth', 2.0);
 
-tail_points_fixedC = 4;
-tail_points_fixedN = 3;
+%% Figure 1: fixed coefficient size C, varying N
+plot_timing_curves( ...
+    T_fixedC, ...
+    'N', ...
+    'truncation dimension $N$', ...
+    fullfile(figDir, 'smooth_fixedC_varyN_timing.pdf'), ...
+    fullfile(figDir, 'smooth_fixedC_varyN_timing.png'));
 
-%% ============================================================
-%  Figure 1: fixed coefficient size C, varying N
-% ============================================================
+%% Figure 2: fixed N, varying coefficient size C
+plot_timing_curves( ...
+    T_fixedN, ...
+    'C_rows', ...
+    'coefficient size $C$', ...
+    fullfile(figDir, 'smooth_fixedN_varyC_timing.pdf'), ...
+    fullfile(figDir, 'smooth_fixedN_varyC_timing.png'));
 
-if isfile(csv_fixedC)
+fprintf('Saved figures to: %s\n', figDir);
 
-    T = readtable(csv_fixedC);
+%% Local helper functions
 
-    N = get_numeric_col(T, 'N');
+function require_columns(T, names, fileName)
+    missingNames = setdiff(names, T.Properties.VariableNames);
+    if ~isempty(missingNames)
+        error('Missing required columns in %s: %s', fileName, strjoin(missingNames, ', '));
+    end
+end
 
-    % Convert ms to sec
-    cheb_time = get_numeric_col(T, 'cheb_median_ms') / 1000.0;
-    go_time   = get_numeric_col(T, 'gutleb_median_ms') / 1000.0;
+function warn_non_success(T, fileName)
+    if ~ismember('status', T.Properties.VariableNames)
+        return;
+    end
 
-    valid_cheb = isfinite(N) & isfinite(cheb_time) ...
-        & N > 0 & cheb_time > 0;
+    status = string(T.status);
+    bad = status ~= "success";
+    if any(bad)
+        warning('%s contains %d rows with status != success.', fileName, nnz(bad));
+    end
+end
 
-    valid_go = isfinite(N) & isfinite(go_time) ...
-        & N > 0 & go_time > 0;
+function T = keep_success_rows(T)
+    keep = true(height(T), 1);
 
-    figure('Color', 'w', 'Position', [100, 100, 760, 560]);
+    if ismember('status', T.Properties.VariableNames)
+        keep = keep & string(T.status) == "success";
+    end
+
+    if ismember('method_status', T.Properties.VariableNames)
+        keep = keep & string(T.method_status) ~= "failed";
+    end
+
+    T = T(keep, :);
+end
+
+function plot_timing_curves(T, xCol, xLabelText, outPdf, outPng)
+    if height(T) == 0
+        error('No successful timing rows are available for %s.', outPdf);
+    end
+
+    methodOrder = ["smooth_cheb_fft_convolution", "gutleb_olver_strictband"];
+    allMethods = unique(string(T.method), 'stable');
+    methods = methodOrder(ismember(methodOrder, allMethods));
+    extraMethods = setdiff(allMethods, methods, 'stable');
+    methods = [methods(:); extraMethods(:)];
+
+    colors = lines(max(numel(methods), 1));
+
+    fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
     hold on; box on; grid on;
 
-    loglog(N(valid_cheb), cheb_time(valid_cheb), '-', ...
-        'DisplayName', 'Duffy--Cheb');
+    plotted = 0;
+    for k = 1:numel(methods)
+        method = methods(k);
+        rows = string(T.method) == method;
+        Tk = T(rows, :);
 
-    loglog(N(valid_go), go_time(valid_go), '-', ...
-        'DisplayName', 'Gutleb--Olver');
+        x = get_numeric_col(Tk, xCol);
+        y = get_numeric_col(Tk, 't_total');
 
-    % Reference lines.
-    % line_factor < 1 moves the dashed line downward.
-    % line_factor > 1 moves the dashed line upward.
-    add_tail_reference_power( ...
-        N(valid_cheb), cheb_time(valid_cheb), ...
-        tail_points_fixedC, 1.0, ...
-        '$O(N)$', ...
-        0.58, 0.8, 0.8);
+        valid = isfinite(x) & isfinite(y) & x > 0 & y > 0;
+        x = x(valid);
+        y = y(valid);
 
-    add_tail_reference_power( ...
-        N(valid_go), go_time(valid_go), ...
-        tail_points_fixedC, 1.0, ...
-        '$O(N)$', ...
-        0.1, 1.2, 1.7);
+        if isempty(x)
+            continue;
+        end
 
-    xlabel('truncation dimension $N$', 'Interpreter', 'latex');
-    ylabel('time (sec)', ...
-        'Interpreter', 'latex');
+        [x, idx] = sort(x);
+        y = y(idx);
 
+        loglog(x, y, '-', ...
+            'Color', colors(k, :), ...
+            'DisplayName', method_label(method));
+        plotted = plotted + 1;
+    end
+
+    if plotted == 0
+        error('No positive finite timing data are available for %s.', outPdf);
+    end
+
+    xlabel(xLabelText, 'Interpreter', 'latex');
+    ylabel('time (sec)', 'Interpreter', 'latex');
     legend('Location', 'northwest', 'Interpreter', 'latex');
 
     ax = gca;
@@ -90,98 +166,26 @@ if isfile(csv_fixedC)
     ax.YMinorGrid = 'on';
     ax.MinorGridLineStyle = ':';
 
-    out_pdf = fullfile(bench_dir, 'end2end_fixedC_varyN_time_loglog.pdf');
-    out_png = fullfile(bench_dir, 'end2end_fixedC_varyN_time_loglog.png');
+    exportgraphics(fig, outPdf, 'ContentType', 'vector');
+    exportgraphics(fig, outPng, 'Resolution', 300);
 
-    exportgraphics(gcf, out_pdf, 'ContentType', 'vector');
-    exportgraphics(gcf, out_png, 'Resolution', 300);
-
-    fprintf('Saved: %s\n', out_pdf);
-    fprintf('Saved: %s\n', out_png);
-
-else
-    warning('CSV not found: %s', csv_fixedC);
+    fprintf('Saved: %s\n', outPdf);
+    fprintf('Saved: %s\n', outPng);
 end
 
-%% ============================================================
-%  Figure 2: fixed N, varying input coefficient size C
-% ============================================================
-
-if isfile(csv_fixedN)
-
-    T = readtable(csv_fixedN);
-
-    % Use original benchmark sizes as x-axis.
-    % In the CSV this is stored as C_rows.
-    sizes = get_numeric_col(T, 'C_rows');
-
-    % Convert ms to sec
-    cheb_time = get_numeric_col(T, 'cheb_median_ms') / 1000.0;
-    go_time   = get_numeric_col(T, 'gutleb_median_ms') / 1000.0;
-
-    valid_cheb = isfinite(sizes) & isfinite(cheb_time) ...
-        & sizes > 0 & cheb_time > 0;
-
-    valid_go = isfinite(sizes) & isfinite(go_time) ...
-        & sizes > 0 & go_time > 0;
-
-    figure('Color', 'w', 'Position', [150, 150, 760, 560]);
-    hold on; box on; grid on;
-
-    loglog(sizes(valid_cheb), cheb_time(valid_cheb), '-', ...
-        'DisplayName', 'Duffy--Cheb');
-
-    loglog(sizes(valid_go), go_time(valid_go), '-', ...
-        'DisplayName', 'Gutleb--Olver');
-
-    % Cheb reference: O(n^2 log n)
-    add_tail_reference_n2logn( ...
-        sizes(valid_cheb), cheb_time(valid_cheb), ...
-        tail_points_fixedN, ...
-        '$O(n^2\log n)$', ...
-        0.55, 0.70, 0.8);
-
-    % Gutleb--Olver reference: O(n^3)
-    add_tail_reference_power( ...
-        sizes(valid_go), go_time(valid_go), ...
-        tail_points_fixedN, 3.0, ...
-        '$O(n^3)$', ...
-        0.5, 1.5, 3);
-
-    xlabel('bandwitdth $n$', 'Interpreter', 'latex');
-    ylabel('time (sec)', ...
-        'Interpreter', 'latex');
-
-    legend('Location', 'northwest', 'Interpreter', 'latex');
-
-    ax = gca;
-    ax.XScale = 'log';
-    ax.YScale = 'log';
-    ax.XGrid = 'on';
-    ax.YGrid = 'on';
-    ax.XMinorGrid = 'on';
-    ax.YMinorGrid = 'on';
-    ax.MinorGridLineStyle = ':';
-
-    out_pdf = fullfile(bench_dir, 'end2end_fixedN_varyC_time_loglog.pdf');
-    out_png = fullfile(bench_dir, 'end2end_fixedN_varyC_time_loglog.png');
-
-    exportgraphics(gcf, out_pdf, 'ContentType', 'vector');
-    exportgraphics(gcf, out_png, 'Resolution', 300);
-
-    fprintf('Saved: %s\n', out_pdf);
-    fprintf('Saved: %s\n', out_png);
-
-else
-    warning('CSV not found: %s', csv_fixedN);
+function label = method_label(method)
+    method = char(method);
+    switch method
+        case 'smooth_cheb_fft_convolution'
+            label = 'Duffy--Cheb';
+        case 'gutleb_olver_strictband'
+            label = 'Gutleb--Olver';
+        otherwise
+            label = strrep(method, '_', '\_');
+    end
 end
-
-%% ============================================================
-%  Helper: read numeric column robustly
-% ============================================================
 
 function x = get_numeric_col(T, name)
-
     if ~ismember(name, T.Properties.VariableNames)
         error('Column "%s" not found in table.', name);
     end
@@ -207,124 +211,4 @@ function x = get_numeric_col(T, name)
             x = str2double(string(v));
         end
     end
-end
-
-%% ============================================================
-%  Helper: black dashed reference line y ~ x^p
-%
-%  Important:
-%  The reference line is NOT anchored at the last point.
-%  Its vertical position is determined by the median of y / x^p
-%  over the tail region, then multiplied by line_factor.
-% ============================================================
-
-function add_tail_reference_power(x, y, n_tail, p, label_text, label_pos, line_factor, label_factor)
-
-    x = x(:);
-    y = y(:);
-
-    valid = isfinite(x) & isfinite(y) & x > 0 & y > 0;
-    x = x(valid);
-    y = y(valid);
-
-    if numel(x) < 2
-        return;
-    end
-
-    [x, idx] = sort(x);
-    y = y(idx);
-
-    n_tail = min(n_tail, numel(x));
-    xt = x(end - n_tail + 1:end);
-    yt = y(end - n_tail + 1:end);
-
-    xref = logspace(log10(xt(1)), log10(xt(end)), 100);
-
-    % Determine reference-line scale from the whole tail,
-    % not from the last point.
-    f_tail = xt.^p;
-    scale = median(yt ./ f_tail, 'omitnan');
-
-    % Move dashed line away from the solid curve.
-    scale = scale * line_factor;
-
-    yref = scale * xref.^p;
-
-    loglog(xref, yref, 'k--', ...
-        'LineWidth', 1.5, ...
-        'HandleVisibility', 'off');
-
-    % Label near the dashed line.
-    label_pos = min(max(label_pos, 0), 1);
-    x_label = exp((1 - label_pos) * log(xt(1)) + label_pos * log(xt(end)));
-    y_label = scale * x_label.^p * label_factor;
-
-    text(x_label, y_label, label_text, ...
-        'Interpreter', 'latex', ...
-        'FontSize', 14, ...
-        'Color', 'k', ...
-        'HorizontalAlignment', 'left', ...
-        'VerticalAlignment', 'middle', ...
-        'HandleVisibility', 'off');
-end
-
-%% ============================================================
-%  Helper: black dashed reference line y ~ n^2 log n
-%
-%  Important:
-%  The reference line is NOT anchored at the last point.
-%  Its vertical position is determined by the median of
-%  y / (n^2 log n) over the tail region, then multiplied
-%  by line_factor.
-% ============================================================
-
-function add_tail_reference_n2logn(x, y, n_tail, label_text, label_pos, line_factor, label_factor)
-
-    x = x(:);
-    y = y(:);
-
-    valid = isfinite(x) & isfinite(y) & x > 1 & y > 0;
-    x = x(valid);
-    y = y(valid);
-
-    if numel(x) < 2
-        return;
-    end
-
-    [x, idx] = sort(x);
-    y = y(idx);
-
-    n_tail = min(n_tail, numel(x));
-    xt = x(end - n_tail + 1:end);
-    yt = y(end - n_tail + 1:end);
-
-    xref = logspace(log10(xt(1)), log10(xt(end)), 100);
-
-    % Determine reference-line scale from the whole tail,
-    % not from the last point.
-    f_tail = xt.^2 .* log(xt);
-    scale = median(yt ./ f_tail, 'omitnan');
-
-    % Move dashed line away from the solid curve.
-    scale = scale * line_factor;
-
-    fref = xref.^2 .* log(xref);
-    yref = scale * fref;
-
-    loglog(xref, yref, 'k--', ...
-        'LineWidth', 1.5, ...
-        'HandleVisibility', 'off');
-
-    % Label near the dashed line.
-    label_pos = min(max(label_pos, 0), 1);
-    x_label = exp((1 - label_pos) * log(xt(1)) + label_pos * log(xt(end)));
-    y_label = scale * x_label.^2 * log(x_label) * label_factor;
-
-    text(x_label, y_label, label_text, ...
-        'Interpreter', 'latex', ...
-        'FontSize', 14, ...
-        'Color', 'k', ...
-        'HorizontalAlignment', 'left', ...
-        'VerticalAlignment', 'middle', ...
-        'HandleVisibility', 'off');
 end
