@@ -33,6 +33,12 @@
 #   transformations are handled by helper routines in this script and in
 #   others/GutlebOlver.
 #
+#   For larger kernel depths, the Float64 Gutleb--Olver Volterra construction
+#   can become numerically unstable. This file therefore also contains a
+#   BigFloat construction-only experiment, which constructs the Volterra matrix
+#   in extended precision before converting the resulting system back to
+#   Float64 for the solve and error measurement.
+#
 # Parameters:
 #   basis_len = 200.
 #   depth ranges from 2 to 60 in the full sweep.
@@ -43,7 +49,8 @@
 #       examples/ex4_oscillatory/data/ex4_GO_depth_sweep_N200.csv
 #
 #   This file also contains helper code for BigFloat construction-only
-#   experiments. Those experiments write
+#   experiments used to check the large-depth construction instability. Those
+#   experiments write
 #
 #       examples/ex4_oscillatory/data/ex4_GO_depth_sweep_bigfloat_construct_only.csv
 #
@@ -58,6 +65,13 @@
 #   BenchmarkTools timing sweep:
 #
 #       julia --project=. examples/ex4_oscillatory/ex4_GO.jl --benchmark
+#
+#   BigFloat construction-only sweep:
+#
+#       julia --project=. -e "include(\"examples/ex4_oscillatory/ex4_GO.jl\"); run_bigfloat_construct_only_depth_sweep()"
+#
+#   The BigFloat construction-only sweep is not enabled by a command-line flag
+#   in the default script entry; it must be called explicitly as above.
 #
 # Benchmark mode:
 #   The benchmark mode uses BenchmarkTools and is separated from the error
