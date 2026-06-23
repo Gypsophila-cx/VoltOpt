@@ -34,16 +34,19 @@ examples/ex5_psespectra/     Legendre Volterra pseudospectrum experiment
 examples/ex6_nonlinear/      nonlinear Volterra--Urysohn examples
 examples/ex7_weaksingular/   weakly singular Volterra comparison scripts
 test/                        benchmark directories
+test/runtests.jl             lightweight package smoke tests
 test/smooth_bench/           smooth-kernel benchmark scripts and plots
 test/weaksingular_bench/     weakly singular benchmark scripts and plots
 test/nonlinear_bench/        nonlinear Volterra action benchmark scripts and plots
+test/sparse_spy/             Volterra matrix sparsity/magnitude plot workflow
 others/                      external/reference comparison code
 others/GutlebOlver/          Gutleb--Olver-type comparison implementation
 others/FracCollocation/      fractional-collocation comparison implementation
 ```
 
-Several example and benchmark directories contain local `data/` and `figures/`
-subdirectories for generated CSV files, MAT files, PDFs, and PNGs.
+Several example, benchmark, and diagnostic directories contain local `data/`
+and `figures/` subdirectories for generated CSV files, MAT files, PDFs, and
+PNGs.
 
 ## Main Components
 
@@ -333,12 +336,44 @@ The MATLAB plotting script reads those CSV files and writes figures to
 matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
 ```
 
+### Sparse Volterra Matrix Spy Diagnostics
+
+The `test/sparse_spy/` directory stores a two-stage diagnostic workflow for
+colored sparsity plots of Volterra coefficient matrices in Chebyshev,
+Legendre, and Jacobi bases. It is not a benchmark sweep.
+
+The Julia script constructs the matrices and writes a MATLAB data file:
+
+```bash
+julia --project=. test/sparse_spy/spy_VoltMat.jl
+```
+
+Output:
+
+```text
+test/sparse_spy/data/spy_VoltMat.mat
+```
+
+The MATLAB script reads that MAT file, adds the machine-epsilon perturbation
+used by the legacy Julia spy plot, and writes PDF/PNG figures:
+
+```bash
+matlab -batch "run('test/sparse_spy/spy_VoltMat.m')"
+```
+
+Output:
+
+```text
+test/sparse_spy/figures/
+```
+
 ## Data and Figures
 
 CSV, MAT, PDF, and PNG files under `examples/*/data/`,
-`examples/*/figures/`, `test/*_bench/data/`, and `test/*_bench/figures/` are
-reproducibility snapshots or regenerated outputs, not stable public APIs.
-Rerunning the corresponding Julia or MATLAB scripts may overwrite them.
+`examples/*/figures/`, `test/*_bench/data/`, `test/*_bench/figures/`,
+`test/sparse_spy/data/`, and `test/sparse_spy/figures/` are reproducibility
+snapshots or regenerated outputs, not stable public APIs. Rerunning the
+corresponding Julia or MATLAB scripts may overwrite them.
 
 The current layout convention is:
 
@@ -346,6 +381,8 @@ The current layout convention is:
   subdirectories.
 - MATLAB plotting scripts and Julia figure-generation scripts write figures to
   local `figures/` subdirectories.
+- Diagnostic scripts under `test/sparse_spy/` follow the same local `data/`
+  and `figures/` convention.
 - Older retained snapshots should live in local `legacy/` subdirectories.
 
 Some plotting scripts add tail reference lines or complexity labels to timing
@@ -365,8 +402,8 @@ including `test/smooth_bench/plot_end2end_smooth_bench.m`,
   state, and current system load.
 - Large benchmark cases, especially varying-kernel-size comparisons, may take
   significant time.
-- MATLAB plotting scripts assume that the corresponding CSV files already exist
-  in the local `data/` subdirectory.
+- MATLAB plotting scripts assume that the corresponding CSV or MAT files
+  already exist in the local `data/` subdirectory.
 - Run `julia --project=. -e "using Pkg; Pkg.test()"` for lightweight package
   smoke tests only. This does not run the benchmark scripts.
 
@@ -377,6 +414,8 @@ including `test/smooth_bench/plot_end2end_smooth_bench.m`,
 - Put benchmark CSV output in the benchmark directory's local `data/` folder.
 - Put generated benchmark figures in the benchmark directory's local
   `figures/` folder.
+- Put diagnostic MAT output and generated diagnostic figures in the diagnostic
+  directory's local `data/` and `figures/` folders.
 - Prefer explicit paths based on `@__DIR__` in Julia scripts.
 - Keep generated data paths local to the example or benchmark directory that
   produced them.
