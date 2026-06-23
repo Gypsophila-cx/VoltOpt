@@ -1,3 +1,25 @@
+# ex3_run.jl
+#
+# Purpose:
+#   Main Example 3 generator for the pantograph first-kind Volterra equation.
+#
+# Problem:
+#   First-kind pantograph Volterra equation represented in a Chebyshev basis.
+#   The script builds the coefficient-space operator and compares truncation
+#   sizes against a fixed reference.
+#
+# Method:
+#   Uses VoltMat-Cheb-style coefficient operations and rest-matrix machinery in
+#   this file, with optional FFTW acceleration for Chebyshev transforms and a
+#   high-precision RHS setup where required.
+#
+# Output files:
+#   data/ex3_error_time.csv
+#   data/ex3_A_Nmax.mat
+#
+# Run from the repository root:
+#   julia --project=. examples/ex3_pantograph/ex3_run.jl
+
 const THIS_DIR = @__DIR__
 
 function find_project_root(start_dir::AbstractString=@__DIR__)

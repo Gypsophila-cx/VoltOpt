@@ -1,4 +1,12 @@
-% Plot smooth benchmark timing curves.
+% plot_end2end_smooth_bench.m
+%
+% Purpose:
+%   Plot smooth Volterra end-to-end timing curves for the fixed-C/vary-N and
+%   fixed-N/vary-C benchmark sweeps.
+%
+% Benchmark:
+%   Compares smooth Chebyshev FFT-convolution against the Gutleb--Olver
+%   strict-band construction for K(x,y) = exp(-x*y).
 %
 % Input files:
 %   data/bench_smooth_fixedC_varyN.csv
@@ -9,6 +17,13 @@
 %   figures/smooth_fixedC_varyN_timing.png
 %   figures/smooth_fixedN_varyC_timing.pdf
 %   figures/smooth_fixedN_varyC_timing.png
+%
+% Notes:
+%   Dashed tail reference lines are visual complexity guides only, not measured
+%   data. Their slopes and placements are controlled by local helper settings.
+%
+% Run:
+%   matlab -batch "run('test/smooth_bench/plot_end2end_smooth_bench.m')"
 
 clear; clc; close all;
 

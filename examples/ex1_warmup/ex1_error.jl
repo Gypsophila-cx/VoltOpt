@@ -1,4 +1,29 @@
 #!/usr/bin/env julia
+#
+# ex1_error.jl
+#
+# Purpose:
+#   Generate the warmup error table for the ex1 method comparison.
+#
+# Problem:
+#   Low-order Volterra integro-differential equation defined in ex1_common.jl.
+#
+# Method:
+#   Runs the shared VoltMat / Chebyshev, VoltMat / Legendre, and Gutleb--Olver
+#   / shifted Jacobi P^(1,0) solvers over N = 1:100 and records diagnostics.
+#
+# Inputs:
+#   ex1_common.jl
+#
+# Output files:
+#   data/ex1_error_N1_100.csv
+#
+# Notes:
+#   N = 1 is retained as a boundary diagnostic. The active solvers require
+#   N >= 2, so those rows are expected to report status = failed.
+#
+# Run from the repository root:
+#   julia --project=. examples/ex1_warmup/ex1_error.jl
 
 include(joinpath(@__DIR__, "ex1_common.jl"))
 

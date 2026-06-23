@@ -1,3 +1,24 @@
+# ex5_volterra_schur_besselj1.jl
+#
+# Purpose:
+#   Generate the Example 5 pseudospectrum data and Julia-rendered contour figure.
+#
+# Problem:
+#   Volterra operator with the complex Bessel kernel
+#   K(x,y) = -im*besselj(1, 2*(x-y) + x*y), represented in a Legendre basis.
+#
+# Method:
+#   Builds a Legendre Volterra matrix, normalizes it, computes a Schur form, and
+#   evaluates the grid pseudospectrum by singular-value solves.
+#
+# Output files:
+#   data/ex5_volterra_schur_besselj1_pseudospectrum.csv
+#   figures/ex5_volterra_schur_besselj1.pdf
+#   figures/ex5_volterra_schur_besselj1.png
+#
+# Run from the repository root:
+#   julia --project=. examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl
+
 ENV["GKSwstype"] = get(ENV, "GKSwstype", "100")
 
 const THIS_DIR = @__DIR__

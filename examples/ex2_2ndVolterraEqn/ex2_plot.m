@@ -1,3 +1,29 @@
+% ex2_plot.m
+%
+% Purpose:
+%   Plot Example 2 error, solve time, and build-time comparisons.
+%
+% Problem:
+%   Aging Maxwell second-kind Volterra equation solved by the VoltMat and
+%   Gutleb--Olver scripts.
+%
+% Input files:
+%   data/ex2_VoltMat_error.csv
+%   data/ex2_VoltMat_time.csv
+%   data/ex2_GO_error.csv
+%   data/ex2_GO_time.csv
+%
+% Output files:
+%   figures/ex2_error.pdf
+%   figures/ex2_error.png
+%   figures/ex2_time.pdf
+%   figures/ex2_time.png
+%   figures/ex2_build_time.pdf
+%   figures/ex2_build_time.png
+%
+% Run:
+%   matlab -batch "run('examples/ex2_2ndVolterraEqn/ex2_plot.m')"
+
 clear; clc; close all;
 
 % ============================================================

@@ -1,4 +1,17 @@
-# Common implementation for the low-order VIDE warmup comparison scripts.
+# ex1_common.jl
+#
+# Purpose:
+#   Shared implementation for the ex1 warmup error, timing, and plotting
+#   workflow. This is an auxiliary file, not a standalone run script.
+#
+# Problem:
+#   Low-order VIDE warmup problem used to compare coefficient-space Volterra
+#   discretizations and the Gutleb--Olver shifted Jacobi construction.
+#
+# Method:
+#   Provides common problem definitions, solver wrappers, error diagnostics,
+#   CSV writing helpers, and project-path discovery for ex1_error.jl and
+#   ex1_timing.jl.
 #
 # The exported entry points in this file deliberately keep the same test problem,
 # basis choices, kernel truncation sizes, error grid, and diagnostics as the

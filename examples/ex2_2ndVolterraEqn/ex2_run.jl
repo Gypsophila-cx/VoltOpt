@@ -1,7 +1,25 @@
 # ex2_run.jl
-# Run ex2_VoltMat.jl and ex2_GO.jl in separate Julia processes.
 #
-# Put this file in examples/ex2_2ndVolterraEqn and run:
+# Purpose:
+#   Main runner for Example 2. It runs the VoltMat and Gutleb--Olver sweeps in
+#   separate Julia processes, cleans stale CSV outputs when requested, and checks
+#   that the expected diagnostic columns are present.
+#
+# Problem:
+#   Second-kind Volterra equation for the aging Maxwell model,
+#   u + V_K u = f, shared by ex2_VoltMat.jl and ex2_GO.jl.
+#
+# Method:
+#   Orchestrates the VoltMat / Chebyshev and Gutleb--Olver / shifted Jacobi
+#   implementations without changing their numerical grids or benchmark setup.
+#
+# Outputs:
+#   data/ex2_VoltMat_error.csv
+#   data/ex2_VoltMat_time.csv
+#   data/ex2_GO_error.csv
+#   data/ex2_GO_time.csv
+#
+# Run from the repository root:
 #   julia --project=. examples/ex2_2ndVolterraEqn/ex2_run.jl
 #
 # Optional examples:

@@ -1,7 +1,14 @@
-% ex6_plot_eqgrid_error.m
-% Plot only the total equidistant-grid error for Example 6.
+% ex6_plot.m
 %
-% Expected input files:
+% Purpose:
+%   Plot the Example 6 equidistant-grid error curves from the Picard output
+%   tables.
+%
+% Problem:
+%   Nonlinear saturated-memory Volterra--Urysohn equation solved by the Example
+%   6 Picard scripts.
+%
+% Input files:
 %   data/ex6_fixed10_varyN.csv
 %   data/ex6_nonlinear_picard_results.csv
 %
@@ -10,6 +17,9 @@
 %   figures/ex6_fixed10_varyN_eqgrid_error.png
 %   figures/ex6_picard_eqgrid_error_history.pdf
 %   figures/ex6_picard_eqgrid_error_history.png
+%
+% Run:
+%   matlab -batch "run('examples/ex6_nonlinear/ex6_plot.m')"
 
 clear; clc; close all;
 

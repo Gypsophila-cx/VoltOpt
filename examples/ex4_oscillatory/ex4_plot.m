@@ -1,5 +1,16 @@
 % ex4_plot.m
-% Plot error and timing curves for GO and VoltMat depth sweeps, N = 200.
+%
+% Purpose:
+%   Plot error and timing curves for the Example 4 GO and VoltMat depth sweeps.
+%
+% Problem:
+%   Oscillatory second-kind Volterra equation with N = 200 and variable kernel
+%   depth.
+%
+% Method:
+%   Reads precomputed CSV files from ex4_GO.jl and ex4_VoltMat.jl, filters
+%   successful rows, and draws the original comparison style. The timing plot
+%   includes tail reference lines used only as visual complexity guides.
 %
 % Expected input files:
 %   data/ex4_GO_depth_sweep_N200.csv
@@ -10,6 +21,9 @@
 %   figures/ex4_depth_error_N200.png
 %   figures/ex4_depth_time_N200.pdf
 %   figures/ex4_depth_time_N200.png
+%
+% Run:
+%   matlab -batch "run('examples/ex4_oscillatory/ex4_plot.m')"
 
 clear; clc; close all;
 

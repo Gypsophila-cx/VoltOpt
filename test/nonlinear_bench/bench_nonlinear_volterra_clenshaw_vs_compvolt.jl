@@ -1,3 +1,25 @@
+# bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
+#
+# Purpose:
+#   Benchmark two nonlinear Volterra action implementations on a manufactured
+#   smooth test function.
+#
+# Benchmark:
+#   Compares a Clenshaw value-matrix quadrature path with the VoltOpt
+#   compVolt_nonlinear_fast path for
+#   K(x,t,u) = u / (1 + (x - t)u^2).
+#
+# Method:
+#   Sweeps separate N lists for the Clenshaw and compVolt methods, records
+#   direct timing statistics with @timed, and reports check_norm values on
+#   overlapping N values.
+#
+# Output files:
+#   data/bench_nonlinear_volterra_clenshaw_vs_compvolt.csv
+#
+# Run from the repository root:
+#   julia --project=. test/nonlinear_bench/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
+
 using LinearAlgebra
 using Printf
 using Statistics

@@ -1,6 +1,13 @@
 #!/usr/bin/env julia
 
-# Example 6: nonlinear saturated-memory Volterra--Urysohn equation.
+# ex6_nonlinear_picard.jl
+#
+# Purpose:
+#   Run the main Example 6 Picard iteration experiment and write the iteration
+#   history CSV.
+#
+# Problem:
+#   Nonlinear saturated-memory Volterra--Urysohn equation.
 #
 # The kernel
 #
@@ -9,6 +16,17 @@
 # is a saturated-memory nonlinearity: as the lag x-t or |u| grows, the
 # denominator damps the remembered contribution. Picard iteration therefore only
 # needs repeated nonlinear Volterra actions with the current iterate.
+#
+# Method:
+#   Uses compVolt_nonlinear_fast for repeated nonlinear Volterra actions in a
+#   Picard fixed-point iteration. An optional direct baseline can be enabled by
+#   setting RUN_DIRECT_BASELINE=1.
+#
+# Output files:
+#   data/ex6_nonlinear_picard_results.csv
+#
+# Run from the repository root:
+#   julia --project=. examples/ex6_nonlinear/ex6_nonlinear_picard.jl
 
 using LinearAlgebra
 using Printf

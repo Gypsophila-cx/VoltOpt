@@ -1,7 +1,15 @@
 % ex7_plot.m
 %
-% Plot Cauchy error and timing curves for Example 7 weakly singular
-% Volterra equation.
+% Purpose:
+%   Plot Cauchy error and timing curves for Example 7.
+%
+% Problem:
+%   Weakly singular Volterra equation solved by the fractional collocation and
+%   Weak_VoltMat_Cheb scripts.
+%
+% Method:
+%   Reads the four generated CSV files, keeps valid rows, and draws the original
+%   error and total-time comparison figures.
 %
 % Input files:
 %   data/ex7_FracCollocation_error.csv
@@ -14,6 +22,9 @@
 %   figures/ex7_cauchy_error_grid.png
 %   figures/ex7_total_time.pdf
 %   figures/ex7_total_time.png
+%
+% Run:
+%   matlab -batch "run('examples/ex7_weaksingular/ex7_plot.m')"
 
 clear; clc; close all;
 

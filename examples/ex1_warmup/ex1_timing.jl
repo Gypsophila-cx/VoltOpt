@@ -1,4 +1,26 @@
 #!/usr/bin/env julia
+#
+# ex1_timing.jl
+#
+# Purpose:
+#   Generate the warmup end-to-end timing table for the ex1 method comparison.
+#
+# Problem:
+#   Same low-order Volterra integro-differential equation and method setup as
+#   ex1_error.jl, with N sampled on a logarithmic grid from 10 to 1000.
+#
+# Method:
+#   Uses BenchmarkTools to time the VoltMat / Chebyshev, VoltMat / Legendre,
+#   and Gutleb--Olver / shifted Jacobi P^(1,0) solve paths.
+#
+# Inputs:
+#   ex1_common.jl
+#
+# Output files:
+#   data/ex1_timing_N10_1000_loggrid.csv
+#
+# Run from the repository root:
+#   julia --project=. examples/ex1_warmup/ex1_timing.jl
 
 using BenchmarkTools
 using Statistics

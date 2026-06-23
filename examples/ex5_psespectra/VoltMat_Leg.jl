@@ -1,3 +1,24 @@
+# VoltMat_Leg.jl
+#
+# Purpose:
+#   Local auxiliary Legendre Volterra matrix implementation used by the Example
+#   5 pseudospectrum workflow.
+#
+# Problem:
+#   Complex-valued Legendre Volterra operator support for
+#   ex5_volterra_schur_besselj1.jl.
+#
+# Method:
+#   Provides Legendre interpolation, coefficient, quadrature, and matrix
+#   assembly helpers. This file is intentionally kept local to ex5 as
+#   reproducibility support and is not a standalone run script.
+#
+# Inputs:
+#   Called by ex5_volterra_schur_besselj1.jl.
+#
+# Output files:
+#   None directly.
+
 module VoltMat_Leg
 
 using LinearAlgebra

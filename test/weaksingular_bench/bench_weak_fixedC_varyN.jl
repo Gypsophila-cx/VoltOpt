@@ -1,3 +1,24 @@
+# bench_weak_fixedC_varyN.jl
+#
+# Purpose:
+#   Benchmark weakly singular Volterra matrix construction with fixed Duffy
+#   coefficient size and varying truncation dimension N.
+#
+# Benchmark:
+#   Uses Weak_VoltMat_Cheb on K(x,y) = exp(-x*y) with mu = 0.5, sigma = 0.0,
+#   and beta = 0.5.
+#
+# Method:
+#   Builds Duffy-Chebyshev coefficients once for the fixed C size, sweeps N,
+#   and uses BenchmarkTools to record coefficient/build time, memory,
+#   allocations, sparsity diagnostics, and status rows.
+#
+# Output files:
+#   data/bench_weak_fixedC_varyN.csv
+#
+# Run from the repository root:
+#   julia --project=. test/weaksingular_bench/bench_weak_fixedC_varyN.jl
+
 using BenchmarkTools
 using Printf
 

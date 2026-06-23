@@ -1,3 +1,24 @@
+# bench_end2end_fixedC_varyN.jl
+#
+# Purpose:
+#   Benchmark smooth-kernel Volterra matrix construction end to end with fixed
+#   kernel coefficient size and varying truncation dimension N.
+#
+# Benchmark:
+#   Compares the VoltOpt smooth Chebyshev FFT-convolution construction with the
+#   Gutleb--Olver strict-band construction on K(x,y) = exp(-x*y).
+#
+# Method:
+#   Keeps Csize fixed, sweeps N, checks bandwidth consistency, and uses
+#   BenchmarkTools to record build-time statistics, memory, allocations, and
+#   status rows.
+#
+# Output files:
+#   data/bench_smooth_fixedC_varyN.csv
+#
+# Run from the repository root:
+#   julia --project=. test/smooth_bench/bench_end2end_fixedC_varyN.jl
+
 using Pkg
 using BenchmarkTools
 using Printf

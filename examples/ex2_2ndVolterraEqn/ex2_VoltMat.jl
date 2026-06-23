@@ -1,3 +1,26 @@
+# ex2_VoltMat.jl
+#
+# Purpose:
+#   Run the VoltMat branch of Example 2 and write separate error and timing CSV
+#   files for comparison with the Gutleb--Olver branch.
+#
+# Problem:
+#   Second-kind Volterra equation for the aging Maxwell model,
+#   u + V_K u = f, using the shared exact solution and fixed-RHS projection
+#   diagnostics defined in this script.
+#
+# Method:
+#   Builds the Chebyshev Volterra matrix with src/VoltMat/voltmat_cheb.jl,
+#   solves the projected linear systems, and uses BenchmarkTools for the timing
+#   sweep. This script is VoltMat_Cheb-only.
+#
+# Output files:
+#   data/ex2_VoltMat_error.csv
+#   data/ex2_VoltMat_time.csv
+#
+# Run from the repository root:
+#   julia --project=. examples/ex2_2ndVolterraEqn/ex2_VoltMat.jl
+
 using BenchmarkTools
 using FFTW
 using InteractiveUtils

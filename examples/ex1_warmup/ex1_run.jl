@@ -1,7 +1,28 @@
 # ex1_run.jl
-# Run the ex1 warmup error and timing sweeps in separate Julia processes.
 #
-# Put this file in examples/ex1_warmup and run:
+# Purpose:
+#   Main runner for the ex1 warmup comparison. It launches the error and timing
+#   sweeps in separate Julia processes and checks the expected CSV outputs.
+#
+# Problem:
+#   Low-order Volterra integro-differential warmup problem shared by
+#   ex1_error.jl, ex1_timing.jl, and ex1_common.jl.
+#
+# Method:
+#   Orchestrates the VoltMat / Chebyshev, VoltMat / Legendre, and
+#   Gutleb--Olver / shifted Jacobi P^(1,0) comparison scripts without changing
+#   their numerical settings.
+#
+# Inputs:
+#   ex1_error.jl
+#   ex1_timing.jl
+#   ex1_common.jl
+#
+# Outputs:
+#   data/ex1_error_N1_100.csv
+#   data/ex1_timing_N10_1000_loggrid.csv
+#
+# Run from the repository root:
 #   julia --project=. examples/ex1_warmup/ex1_run.jl
 #
 # Optional examples:

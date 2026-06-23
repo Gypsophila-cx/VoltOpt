@@ -1,3 +1,26 @@
+# ex2_GO.jl
+#
+# Purpose:
+#   Run the Gutleb--Olver branch of Example 2 and write separate error and
+#   timing CSV files for comparison with the VoltMat branch.
+#
+# Problem:
+#   Second-kind Volterra equation for the aging Maxwell model,
+#   u + V_K u = f, using the same fixed-RHS projection convention as
+#   ex2_VoltMat.jl.
+#
+# Method:
+#   Uses the Gutleb--Olver shifted Jacobi / strict-band Volterra construction
+#   from others/GutlebOlver, with BenchmarkTools used for the timing sweep.
+#   This script is GutlebOlver-only.
+#
+# Output files:
+#   data/ex2_GO_error.csv
+#   data/ex2_GO_time.csv
+#
+# Run from the repository root:
+#   julia --project=. examples/ex2_2ndVolterraEqn/ex2_GO.jl
+
 using BenchmarkTools
 using LinearAlgebra
 using Printf

@@ -1,3 +1,36 @@
+# ex3_pantograph_firstkind.jl
+#
+# Purpose:
+#   Diagnostic first-kind pantograph script for Example 3. It generates direct
+#   error-curve CSV files and figures for Float64 and optional high-precision
+#   RHS construction.
+#
+# Problem:
+#   First-kind pantograph Volterra equation in Chebyshev coefficients, using the
+#   same current example directory layout as ex3_run.jl.
+#
+# Method:
+#   Builds Chebyshev Volterra/rest matrices, evaluates Float64 and BigFloat RHS
+#   variants, writes error curves, and saves a sparsity plot for the N = 100
+#   operator. This script is a comparison/diagnostic companion to ex3_run.jl.
+#
+# Output files:
+#   data/ex3_pantograph_cheb_error_curve_float64_rhs.csv
+#   data/ex3_pantograph_cheb_error_curve_big_rhs.csv
+#   figures/ex3_pantograph_cheb_error_curve_float64_rhs.pdf
+#   figures/ex3_pantograph_cheb_error_curve_float64_rhs.png
+#   figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf
+#   figures/ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.png
+#   figures/ex3_pantograph_cheb_error_curve_big_rhs.pdf
+#   figures/ex3_pantograph_cheb_error_curve_big_rhs.png
+#   figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf
+#   figures/ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.png
+#   figures/ex3_pantograph_cheb_A100_spy.pdf
+#   figures/ex3_pantograph_cheb_A100_spy.png
+#
+# Run from the repository root:
+#   julia --project=. examples/ex3_pantograph/ex3_pantograph_firstkind.jl
+
 const THIS_DIR = @__DIR__
 
 function find_project_root(start_dir::AbstractString=@__DIR__)

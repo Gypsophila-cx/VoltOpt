@@ -1,12 +1,29 @@
 #!/usr/bin/env julia
 
-# Example 6 benchmark: plain Picard/fixed-point iteration with fixed iteration count.
+# ex6_fixed10_varyN.jl
+#
+# Purpose:
+#   Generate the Example 6 fixed-iteration vary-N comparison CSV.
+#
+# Problem:
+#   Same manufactured nonlinear Volterra--Urysohn equation as
+#   ex6_nonlinear_picard.jl.
 #
 # This script solves the same manufactured nonlinear Volterra--Urysohn equation
 # as ex6_anderson_fixed10_varyN.jl, but removes Anderson acceleration. It fixes
 # the number of nonlinear iterations to FIXED_ITERS = 10 and varies the
 # truncation size N from 10 to 5000. It writes one CSV file into
 # examples/ex6_nonlinear/data.
+#
+# Method:
+#   Runs plain Picard/fixed-point iteration for a fixed iteration count and
+#   records residual, node-grid, equidistant-grid, and timing diagnostics.
+#
+# Output files:
+#   data/ex6_fixed10_varyN.csv
+#
+# Run from the repository root:
+#   julia --project=. examples/ex6_nonlinear/ex6_fixed10_varyN.jl
 
 using LinearAlgebra
 using Printf

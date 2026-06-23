@@ -1,6 +1,28 @@
 % ex1_plot.m
-% Plot error decay and end-to-end timing from warmup CSV files.
-% Run this script in examples/ex1_warmup/.
+%
+% Purpose:
+%   Plot error decay and end-to-end timing from warmup CSV files.
+%
+% Problem:
+%   Low-order VIDE warmup comparison between VoltMat / Chebyshev,
+%   VoltMat / Legendre, and Gutleb--Olver shifted Jacobi methods.
+%
+% Input files:
+%   data/ex1_error_N1_100.csv
+%   data/ex1_timing_N10_1000_loggrid.csv
+%
+% Output files:
+%   figures/ex1_error_decay.pdf
+%   figures/ex1_error_decay.png
+%   figures/ex1_median_elapsed_time.pdf
+%   figures/ex1_median_elapsed_time.png
+%
+% Notes:
+%   The plots use status = success rows. N = 1 failed rows in the error CSV are
+%   expected boundary diagnostics because the active solvers require N >= 2.
+%
+% Run:
+%   matlab -batch "run('examples/ex1_warmup/ex1_plot.m')"
 
 clear; clc; close all;
 
