@@ -129,7 +129,7 @@ function plot_error_curve(T, outPdf, outPng)
 
     plot(x, y);
 
-    xlabel('truncation dimension $N$', 'Interpreter', 'latex');
+    xlabel('$N$', 'Interpreter', 'latex');
     ylabel('$\|F_{\mathrm{Clenshaw}} - F_{\mathrm{compVolt}}\|_{\infty}$', ...
         'Interpreter', 'latex');
 
