@@ -127,10 +127,10 @@ fig1 = figure('Color', 'w');
 hold on;
 
 semilogy(TvmErr.depth, TvmErr.max_error, ...
-    'LineWidth', 1.8);
+    'LineWidth', 1.5);
 
 semilogy(TgoErr.depth, TgoErr.max_error,  ...
-    'LineWidth', 1.8);
+    'LineWidth', 1.5);
 
 xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
 ylabel('error', 'Interpreter', 'latex');
@@ -165,10 +165,10 @@ fig2 = figure('Color', 'w');
 hold on;
 
 loglog(vmDepthTime, vmTime,  ...
-    'LineWidth', 1.8);
+    'LineWidth', 1.5);
 
 loglog(goDepthTime, goTime,  ...
-    'LineWidth', 1.8);
+    'LineWidth', 1.5);
 
 % Reference complexity curves on the tail.
 tailCount = 40;

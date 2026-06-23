@@ -63,7 +63,7 @@ T = T(string(T.status) == "success", :);
 labels = string(T.method) + " / " + string(T.basis);
 
 fig1 = figure('Color', 'w');
-hold on; box on; grid on;
+hold on; box on;
 
 for k = 1:numel(method_keys)
     idx = labels == method_keys(k);
