@@ -256,8 +256,8 @@ matlab -batch "run('examples/ex7_weaksingular/ex7_plot.m')"
 
 Benchmark scripts should be run from the project root with `--project=.`.
 The `test/` directory currently stores benchmark scripts and plotting helpers;
-it is not a conventional `Pkg.test()` suite and does not currently provide
-`test/runtests.jl`.
+`Pkg.test()` only runs lightweight smoke tests. Benchmark scripts remain manual
+because they can take substantially longer and overwrite generated artifacts.
 
 Benchmark CSV schemas are directory-specific. Smooth, weakly singular, and
 nonlinear benchmarks are read by their corresponding MATLAB plotting scripts
@@ -335,16 +335,26 @@ matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
 
 ## Data and Figures
 
-Benchmark CSV data are written to local `data/` subdirectories inside the
-corresponding benchmark directories. Example CSV and MAT data are written to
-local `data/` subdirectories inside the corresponding example directories.
-Plotting and figure-generation scripts write generated figures to local
-`figures/` subdirectories. The ex5 pseudospectrum example follows this same
-local `data/` and `figures/` convention.
+CSV, MAT, PDF, and PNG files under `examples/*/data/`,
+`examples/*/figures/`, `test/*_bench/data/`, and `test/*_bench/figures/` are
+reproducibility snapshots or regenerated outputs, not stable public APIs.
+Rerunning the corresponding Julia or MATLAB scripts may overwrite them.
 
-Generated data and figures may be overwritten when the benchmark or plotting
-scripts are rerun.  Existing checked-in CSV, PDF, PNG, and MAT files should be
-treated as generated numerical artifacts rather than source interfaces.
+The current layout convention is:
+
+- Julia example and benchmark scripts write CSV/MAT data to local `data/`
+  subdirectories.
+- MATLAB plotting scripts and Julia figure-generation scripts write figures to
+  local `figures/` subdirectories.
+- Older retained snapshots should live in local `legacy/` subdirectories.
+
+Some plotting scripts add tail reference lines or complexity labels to timing
+figures, for example visual guides such as `O(N)`, `O(N^2 log N)`, or `O(N^3)`.
+These guides are not additional measured data. Their placement and scaling are
+controlled by the reference-line settings in the corresponding MATLAB scripts,
+including `test/smooth_bench/plot_end2end_smooth_bench.m`,
+`test/nonlinear_bench/plot_nonlinear_bench.m`, and
+`examples/ex4_oscillatory/ex4_plot.m`.
 
 ## Notes on Reproducibility
 
@@ -357,6 +367,8 @@ treated as generated numerical artifacts rather than source interfaces.
   significant time.
 - MATLAB plotting scripts assume that the corresponding CSV files already exist
   in the local `data/` subdirectory.
+- Run `julia --project=. -e "using Pkg; Pkg.test()"` for lightweight package
+  smoke tests only. This does not run the benchmark scripts.
 
 ## Development Notes
 
@@ -368,3 +380,11 @@ treated as generated numerical artifacts rather than source interfaces.
 - Prefer explicit paths based on `@__DIR__` in Julia scripts.
 - Keep generated data paths local to the example or benchmark directory that
   produced them.
+- Run the static layout audit with:
+
+```bash
+julia --project=. tools/audit_layout.jl
+```
+
+The audit checks expected directories, key scripts, root-level generated
+artifacts, and stale README paths. It does not run examples or benchmarks.
