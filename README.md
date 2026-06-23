@@ -17,31 +17,33 @@ The project includes:
 ## Project Structure
 
 ```text
-Project.toml                 Julia project environment
-Manifest.toml                pinned package manifest
-README.md                    project overview and usage notes
-src/                         package source code
-src/VoltOpt.jl               main module entry point and exports
-src/VoltMat/                 Volterra matrix construction routines
-src/CompVolt/                composed and nonlinear Volterra actions
-src/RestMat/                 coefficient-space restriction matrices
-examples/                    reproducible numerical examples and comparisons
-examples/ex1_warmup/         low-order warmup comparison scripts
-examples/ex2_2ndVolterraEqn/ second-kind smooth Volterra example and comparisons
-examples/ex3_pantograph/     pantograph first-kind Volterra example
-examples/ex4_oscillatory/    oscillatory-kernel comparison scripts
-examples/ex5_psespectra/     Legendre Volterra pseudospectrum experiment
-examples/ex6_nonlinear/      nonlinear Volterra--Urysohn examples
-examples/ex7_weaksingular/   weakly singular Volterra comparison scripts
-test/                        benchmark directories
-test/runtests.jl             lightweight package smoke tests
-test/smooth_bench/           smooth-kernel benchmark scripts and plots
-test/weaksingular_bench/     weakly singular benchmark scripts and plots
-test/nonlinear_bench/        nonlinear Volterra action benchmark scripts and plots
-test/sparse_spy/             Volterra matrix sparsity/magnitude plot workflow
-others/                      external/reference comparison code
-others/GutlebOlver/          Gutleb--Olver-type comparison implementation
-others/FracCollocation/      fractional-collocation comparison implementation
+VoltOpt/
+|_ Project.toml                 Julia project environment
+|_ Manifest.toml                pinned package manifest
+|_ README.md                    project overview and usage notes
+|_ src/                         package source code
+|  |_ VoltOpt.jl                main module entry point and exports
+|  |_ VoltMat/                  Volterra matrix construction routines
+|  |_ CompVolt/                 composed and nonlinear Volterra actions
+|  |_ RestMat/                  coefficient-space restriction matrices
+|_ examples/                    reproducible numerical examples and comparisons
+|  |_ ex1_warmup/               low-order warmup comparison scripts
+|  |_ ex2_2ndVolterraEqn/       second-kind smooth Volterra example and comparisons
+|  |_ ex3_pantograph/           pantograph first-kind Volterra example
+|  |_ ex4_oscillatory/          oscillatory-kernel comparison scripts
+|  |_ ex5_psespectra/           Legendre Volterra pseudospectrum experiment
+|  |_ ex6_nonlinear/            nonlinear Volterra--Urysohn examples
+|  |_ ex7_weaksingular/         weakly singular Volterra comparison scripts
+|_ test/                        benchmark and diagnostic directories
+|  |_ runtests.jl               lightweight package smoke tests
+|  |_ smooth_bench/             smooth-kernel benchmark scripts and plots
+|  |_ weaksingular_bench/       weakly singular benchmark scripts and plots
+|  |_ nonlinear_bench/          nonlinear Volterra action benchmark scripts and plots
+|  |_ sparse_spy/               Volterra matrix sparsity/magnitude plot workflow
+|_ others/                      external/reference comparison code
+|  |_ GutlebOlver/              Gutleb--Olver-type comparison implementation
+|  |_ FracCollocation/          fractional-collocation comparison implementation
+|_ tools/                       static layout and maintenance helpers
 ```
 
 Several example, benchmark, and diagnostic directories contain local `data/`
