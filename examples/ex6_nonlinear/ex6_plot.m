@@ -42,9 +42,9 @@ set(groot, 'defaultTextInterpreter', 'latex');
 set(groot, 'defaultAxesTickLabelInterpreter', 'latex');
 set(groot, 'defaultLegendInterpreter', 'latex');
 
-lineWidth  = 1.8;
+lineWidth  = 1.5;
 markerSize = 6;
-fontSize   = 13;
+fontSize   = 12;
 
 %% Read data
 T_fixed  = readtable(fixedFile);

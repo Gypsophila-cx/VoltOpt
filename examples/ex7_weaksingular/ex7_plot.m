@@ -66,7 +66,7 @@ TvoltTime = sortrows(TvoltTime, 'N');
 %% Plot options
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
-set(groot, 'defaultLineLineWidth', 2.0);
+set(groot, 'defaultLineLineWidth', 1.5);
 set(groot, 'defaultAxesFontSize', 12);
 set(groot, 'defaultTextFontSize', 12);
 

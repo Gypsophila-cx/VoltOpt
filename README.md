@@ -26,17 +26,17 @@ src/VoltMat/                 Volterra matrix construction routines
 src/CompVolt/                composed and nonlinear Volterra actions
 src/RestMat/                 coefficient-space restriction matrices
 examples/                    reproducible numerical examples and comparisons
-examples/ex1_2ndVolterraEqn/ second-kind smooth Volterra example and comparisons
-examples/ex2_1stVolterraEqn/ first-kind Volterra comparison scripts
+examples/ex1_warmup/         low-order warmup comparison scripts
+examples/ex2_2ndVolterraEqn/ second-kind smooth Volterra example and comparisons
 examples/ex3_pantograph/     pantograph first-kind Volterra example
 examples/ex4_oscillatory/    oscillatory-kernel comparison scripts
 examples/ex5_psespectra/     Legendre Volterra pseudospectrum experiment
 examples/ex6_nonlinear/      nonlinear Volterra--Urysohn examples
 examples/ex7_weaksingular/   weakly singular Volterra comparison scripts
-examples/warmup/             low-order warmup and timing scripts
 test/                        benchmark directories
 test/smooth_bench/           smooth-kernel benchmark scripts and plots
 test/weaksingular_bench/     weakly singular benchmark scripts and plots
+test/nonlinear_bench/        nonlinear Volterra action benchmark scripts and plots
 others/                      external/reference comparison code
 others/GutlebOlver/          Gutleb--Olver-type comparison implementation
 others/FracCollocation/      fractional-collocation comparison implementation
@@ -140,29 +140,108 @@ Run example scripts from the project root with the project environment:
 julia --project=. examples/path/to/script.jl
 ```
 
-Representative scripts currently present in the repository include:
+Current example directories and recommended commands are:
+
+### Ex1 Warmup
+
+- Directory: `examples/ex1_warmup/`
+- Main Julia entry: `examples/ex1_warmup/ex1_run.jl`
+- Method scripts: `ex1_error.jl`, `ex1_timing.jl`
+- MATLAB plot script: `examples/ex1_warmup/ex1_plot.m`
+- Data directory: `examples/ex1_warmup/data/`
+- Figures directory: `examples/ex1_warmup/figures/`
 
 ```bash
-julia --project=. examples/ex1_2ndVolterraEqn/ex1_run.jl
-julia --project=. examples/ex1_2ndVolterraEqn/ex1_VoltMat.jl
-julia --project=. examples/ex1_2ndVolterraEqn/ex1_GO.jl
-julia --project=. examples/ex2_1stVolterraEqn/ex2_firstkind_direct_vs_differentiated.jl
-julia --project=. examples/ex3_pantograph/ex3_run.jl
-julia --project=. examples/ex3_pantograph/ex3_pantograph_firstkind.jl
-julia --project=. examples/ex4_oscillatory/ex4_VoltMat.jl
-julia --project=. examples/ex4_oscillatory/ex4_GO.jl
-julia --project=. examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl
-julia --project=. examples/ex6_nonlinear/ex6_nonlinear_picard.jl
-julia --project=. examples/ex6_nonlinear/ex6_fixed10_varyN.jl
-julia --project=. examples/ex7_weaksingular/ex7_VoltMat.jl
-julia --project=. examples/ex7_weaksingular/ex7_FracCollocation.jl
+julia --project=. examples/ex1_warmup/ex1_run.jl
+matlab -batch "run('examples/ex1_warmup/ex1_plot.m')"
 ```
 
-MATLAB plotting scripts are also present in several example directories, for
-example `examples/ex1_2ndVolterraEqn/ex1_plot.m`,
-`examples/ex3_pantograph/ex3_plot.m`, `examples/ex4_oscillatory/ex4_plot.m`,
-`examples/ex6_nonlinear/ex6_plot.m`, and
-`examples/ex7_weaksingular/ex7_plot.m`.
+### Ex2 Second-Kind Volterra Equation
+
+- Directory: `examples/ex2_2ndVolterraEqn/`
+- Main Julia entry: `examples/ex2_2ndVolterraEqn/ex2_run.jl`
+- Method scripts: `ex2_VoltMat.jl`, `ex2_GO.jl`
+- MATLAB plot script: `examples/ex2_2ndVolterraEqn/ex2_plot.m`
+- Data directory: `examples/ex2_2ndVolterraEqn/data/`
+- Figures directory: `examples/ex2_2ndVolterraEqn/figures/`
+
+```bash
+julia --project=. examples/ex2_2ndVolterraEqn/ex2_run.jl
+matlab -batch "run('examples/ex2_2ndVolterraEqn/ex2_plot.m')"
+```
+
+### Ex3 Pantograph
+
+- Directory: `examples/ex3_pantograph/`
+- Main Julia entry: `examples/ex3_pantograph/ex3_run.jl`
+- Secondary Julia script: `examples/ex3_pantograph/ex3_pantograph_firstkind.jl`
+- MATLAB plot script: `examples/ex3_pantograph/ex3_plot.m`
+- Data directory for `ex3_run.jl`: `examples/ex3_pantograph/data/`
+- Figures directory for `ex3_plot.m`: `examples/ex3_pantograph/figures/`
+
+```bash
+julia --project=. examples/ex3_pantograph/ex3_run.jl
+matlab -batch "run('examples/ex3_pantograph/ex3_plot.m')"
+```
+
+### Ex4 Oscillatory Kernel
+
+- Directory: `examples/ex4_oscillatory/`
+- Julia scripts: `examples/ex4_oscillatory/ex4_VoltMat.jl`,
+  `examples/ex4_oscillatory/ex4_GO.jl`
+- MATLAB plot script: `examples/ex4_oscillatory/ex4_plot.m`
+- Data directory: `examples/ex4_oscillatory/data/`
+- Figures directory: `examples/ex4_oscillatory/figures/`
+
+```bash
+julia --project=. examples/ex4_oscillatory/ex4_VoltMat.jl
+julia --project=. examples/ex4_oscillatory/ex4_GO.jl
+matlab -batch "run('examples/ex4_oscillatory/ex4_plot.m')"
+```
+
+### Ex5 Pseudospectra
+
+- Directory: `examples/ex5_psespectra/`
+- Julia script: `examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl`
+- MATLAB plot script: `examples/ex5_psespectra/ex5_plot.m`
+- Current checked-in artifacts are in `examples/ex5_psespectra/`.
+- Current Julia script writes generated CSV/PDF/PNG files under
+  `examples/figures/`.
+
+```bash
+julia --project=. examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl
+matlab -batch "cd('examples/ex5_psespectra'); ex5_plot"
+```
+
+### Ex6 Nonlinear Volterra-Urysohn
+
+- Directory: `examples/ex6_nonlinear/`
+- Julia scripts: `examples/ex6_nonlinear/ex6_nonlinear_picard.jl`,
+  `examples/ex6_nonlinear/ex6_fixed10_varyN.jl`
+- MATLAB plot script: `examples/ex6_nonlinear/ex6_plot.m`
+- Data directory: `examples/ex6_nonlinear/data/`
+- Figures directory: `examples/ex6_nonlinear/figures/`
+
+```bash
+julia --project=. examples/ex6_nonlinear/ex6_nonlinear_picard.jl
+julia --project=. examples/ex6_nonlinear/ex6_fixed10_varyN.jl
+matlab -batch "run('examples/ex6_nonlinear/ex6_plot.m')"
+```
+
+### Ex7 Weakly Singular Volterra Equation
+
+- Directory: `examples/ex7_weaksingular/`
+- Julia scripts: `examples/ex7_weaksingular/ex7_VoltMat.jl`,
+  `examples/ex7_weaksingular/ex7_FracCollocation.jl`
+- MATLAB plot script: `examples/ex7_weaksingular/ex7_plot.m`
+- Data directory: `examples/ex7_weaksingular/data/`
+- Figures directory: `examples/ex7_weaksingular/figures/`
+
+```bash
+julia --project=. examples/ex7_weaksingular/ex7_VoltMat.jl
+julia --project=. examples/ex7_weaksingular/ex7_FracCollocation.jl
+matlab -batch "run('examples/ex7_weaksingular/ex7_plot.m')"
+```
 
 ## Running Benchmarks
 
@@ -208,11 +287,36 @@ The MATLAB plotting script reads those CSV files and writes figures to
 matlab -batch "run('test/weaksingular_bench/plot_weaksingular_bench.m')"
 ```
 
+### Nonlinear Volterra Action Benchmarks
+
+```bash
+julia --project=. test/nonlinear_bench/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
+```
+
+The nonlinear benchmark script writes CSV files to:
+
+```text
+test/nonlinear_bench/data/
+```
+
+The MATLAB plotting script reads those CSV files and writes figures to
+`test/nonlinear_bench/figures/`:
+
+```bash
+matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
+```
+
 ## Data and Figures
 
 Benchmark CSV data are written to local `data/` subdirectories inside the
-corresponding benchmark directories.  Plotting scripts write generated figures
-to local `figures/` subdirectories.
+corresponding benchmark directories.  Most example CSV data are also written
+to local `data/` subdirectories inside the corresponding example directories.
+Plotting scripts generally write generated figures to local `figures/`
+subdirectories.
+
+The current exception is `examples/ex5_psespectra/`: its checked-in
+pseudospectrum artifacts are local to that directory, while the Julia script
+currently writes generated output under `examples/figures/`.
 
 Generated data and figures may be overwritten when the benchmark or plotting
 scripts are rerun.  Existing checked-in CSV, PDF, PNG, and MAT files should be
