@@ -142,6 +142,9 @@ julia --project=. examples/path/to/script.jl
 
 Current example directories and recommended commands are:
 
+When an example lists multiple Julia scripts, run them in the order shown before
+running the MATLAB plotting script.
+
 ### Ex1 Warmup
 
 - Directory: `examples/ex1_warmup/`
@@ -150,6 +153,9 @@ Current example directories and recommended commands are:
 - MATLAB plot script: `examples/ex1_warmup/ex1_plot.m`
 - Data directory: `examples/ex1_warmup/data/`
 - Figures directory: `examples/ex1_warmup/figures/`
+- The `N=1` rows in `ex1_error_N1_100.csv` are expected boundary diagnostics:
+  the solvers require `N >= 2`, and the plotting script uses only
+  `status=success` rows for formal error and figure output.
 
 ```bash
 julia --project=. examples/ex1_warmup/ex1_run.jl
@@ -204,13 +210,16 @@ matlab -batch "run('examples/ex4_oscillatory/ex4_plot.m')"
 - Directory: `examples/ex5_psespectra/`
 - Julia script: `examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl`
 - MATLAB plot script: `examples/ex5_psespectra/ex5_plot.m`
-- Current checked-in artifacts are in `examples/ex5_psespectra/`.
-- Current Julia script writes generated CSV/PDF/PNG files under
-  `examples/figures/`.
+- Data directory: `examples/ex5_psespectra/data/`
+- Figures directory: `examples/ex5_psespectra/figures/`
+- The Julia script writes pseudospectrum CSV data to local `data/` and its
+  generated PDF/PNG figure to local `figures/`.
+- The MATLAB plot script reads the local CSV data and writes PDF/PNG figures
+  to local `figures/`.
 
 ```bash
 julia --project=. examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl
-matlab -batch "cd('examples/ex5_psespectra'); ex5_plot"
+matlab -batch "run('examples/ex5_psespectra/ex5_plot.m')"
 ```
 
 ### Ex6 Nonlinear Volterra-Urysohn
@@ -246,6 +255,13 @@ matlab -batch "run('examples/ex7_weaksingular/ex7_plot.m')"
 ## Running Benchmarks
 
 Benchmark scripts should be run from the project root with `--project=.`.
+The `test/` directory currently stores benchmark scripts and plotting helpers;
+it is not a conventional `Pkg.test()` suite and does not currently provide
+`test/runtests.jl`.
+
+Benchmark CSV schemas are directory-specific. Smooth, weakly singular, and
+nonlinear benchmarks are read by their corresponding MATLAB plotting scripts
+rather than through a single shared CSV schema.
 
 ### Smooth-Kernel Benchmarks
 
@@ -258,6 +274,13 @@ The smooth benchmark scripts write CSV files to:
 
 ```text
 test/smooth_bench/data/
+```
+
+Older root-level smooth CSV snapshots with the previous aggregate schema are
+kept under:
+
+```text
+test/smooth_bench/legacy/
 ```
 
 The MATLAB plotting script reads those CSV files and writes figures to
@@ -299,6 +322,10 @@ The nonlinear benchmark script writes CSV files to:
 test/nonlinear_bench/data/
 ```
 
+This benchmark directly includes `src/CompVolt/clenshaw_valuemat.jl` as an
+internal benchmark helper for comparison; that helper is not currently part of
+the exported package API.
+
 The MATLAB plotting script reads those CSV files and writes figures to
 `test/nonlinear_bench/figures/`:
 
@@ -309,14 +336,11 @@ matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
 ## Data and Figures
 
 Benchmark CSV data are written to local `data/` subdirectories inside the
-corresponding benchmark directories.  Most example CSV data are also written
-to local `data/` subdirectories inside the corresponding example directories.
-Plotting scripts generally write generated figures to local `figures/`
-subdirectories.
-
-The current exception is `examples/ex5_psespectra/`: its checked-in
-pseudospectrum artifacts are local to that directory, while the Julia script
-currently writes generated output under `examples/figures/`.
+corresponding benchmark directories. Example CSV and MAT data are written to
+local `data/` subdirectories inside the corresponding example directories.
+Plotting and figure-generation scripts write generated figures to local
+`figures/` subdirectories. The ex5 pseudospectrum example follows this same
+local `data/` and `figures/` convention.
 
 Generated data and figures may be overwritten when the benchmark or plotting
 scripts are rerun.  Existing checked-in CSV, PDF, PNG, and MAT files should be

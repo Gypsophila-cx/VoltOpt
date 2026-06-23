@@ -41,7 +41,7 @@ function find_project_root(start_dir::AbstractString=@__DIR__)
     while true
         _find_compvolt_file(dir) !== nothing && return dir
         parent = dirname(dir)
-        parent == dir && error("Could not find a project root containing src/compVolt.jl or src/CompVolt/compVolt.jl.")
+        parent == dir && error("Could not find a project root containing canonical src/CompVolt/compVolt.jl.")
         dir = parent
     end
 end
@@ -51,8 +51,9 @@ const compvolt_file = _find_compvolt_file(project_root)
 
 # This checkout exposes the nonlinear API from src/CompVolt/compVolt.jl:
 #   compVolt_nonlinear_fast(K, cu; grid=CompVoltGrid(N), truncate_output=true)
-# The lowercase src/compVolt.jl path is also accepted above for compatibility
-# with the path stated in the example description.
+# The legacy lowercase src/compVolt.jl path is still accepted above for
+# compatibility with older example descriptions, but src/CompVolt/compVolt.jl
+# is the canonical path in the current tree.
 include(compvolt_file)
 
 function lambertw_exp(s::Float64; maxiter::Int=100)

@@ -15,7 +15,8 @@ end
 const VOLTERRA_ROOT = find_project_root()
 const SRC_DIR = joinpath(VOLTERRA_ROOT, "src")
 const VOLTERRA_PROJECT = joinpath(VOLTERRA_ROOT, "Project.toml")
-const FIGURES_DIR = joinpath(VOLTERRA_ROOT, "examples", "figures")
+const DATA_DIR = joinpath(THIS_DIR, "data")
+const FIGURES_DIR = joinpath(THIS_DIR, "figures")
 
 if isfile(VOLTERRA_PROJECT) && !(VOLTERRA_ROOT in LOAD_PATH)
     pushfirst!(LOAD_PATH, VOLTERRA_ROOT)
@@ -1434,6 +1435,7 @@ function write_A_spy_plot(path, A)
 end
 
 function main()
+    mkpath(DATA_DIR)
     mkpath(FIGURES_DIR)
 
     q = q_default
@@ -1501,7 +1503,7 @@ function main()
         kernel_coeffs = kernel_coeffs,
     )
 
-    csv_float_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_float64_rhs.csv")
+    csv_float_path = joinpath(DATA_DIR, "ex3_pantograph_cheb_error_curve_float64_rhs.csv")
     pdf_float_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_float64_rhs.pdf")
     pdf_float_bigtruth_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_float64_rhs_bigtruth.pdf")
 
@@ -1530,7 +1532,7 @@ function main()
             kernel_coeffs = kernel_coeffs,
         )
 
-        csv_big_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_big_rhs.csv")
+        csv_big_path = joinpath(DATA_DIR, "ex3_pantograph_cheb_error_curve_big_rhs.csv")
         pdf_big_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_big_rhs.pdf")
         pdf_big_bigtruth_path = joinpath(FIGURES_DIR, "ex3_pantograph_cheb_error_curve_big_rhs_bigtruth.pdf")
 

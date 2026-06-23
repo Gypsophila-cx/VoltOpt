@@ -1,5 +1,7 @@
 ENV["GKSwstype"] = get(ENV, "GKSwstype", "100")
 
+const THIS_DIR = @__DIR__
+
 function find_project_root(start_dir::AbstractString=@__DIR__)
     dir = abspath(start_dir)
     while true
@@ -14,7 +16,8 @@ end
 
 const PROJECT_ROOT = find_project_root()
 const SRC_DIR = joinpath(PROJECT_ROOT, "src")
-const FIGURES_DIR = joinpath(PROJECT_ROOT, "examples", "figures")
+const DATA_DIR = joinpath(THIS_DIR, "data")
+const FIGURES_DIR = joinpath(THIS_DIR, "figures")
 
 include(joinpath(SRC_DIR, "VoltMat", "voltmat_leg.jl"))
 
@@ -37,7 +40,7 @@ const npty = 300
 const ax = (-0.65, 0.65)
 const ay = (-0.72, 0.34)
 
-const csv_path = joinpath(FIGURES_DIR, "ex5_volterra_schur_besselj1_pseudospectrum.csv")
+const csv_path = joinpath(DATA_DIR, "ex5_volterra_schur_besselj1_pseudospectrum.csv")
 const pdf_path = joinpath(FIGURES_DIR, "ex5_volterra_schur_besselj1.pdf")
 
 function savefig_pdf_png(fig, pdf_path::AbstractString)
@@ -169,6 +172,7 @@ function plot_pdf(path, ptx, pty, logpse)
     return plt
 end
 
+mkpath(DATA_DIR)
 mkpath(FIGURES_DIR)
 
 println("interpolating Khat(x,t) in a tensor-product Legendre basis")

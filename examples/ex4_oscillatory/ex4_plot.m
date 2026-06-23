@@ -8,8 +8,8 @@
 % Output files:
 %   figures/ex4_depth_error_N200.pdf
 %   figures/ex4_depth_error_N200.png
-%   figures/ex4_depth_build_time_N200.pdf
-%   figures/ex4_depth_build_time_N200.png
+%   figures/ex4_depth_time_N200.pdf
+%   figures/ex4_depth_time_N200.png
 
 clear; clc; close all;
 
