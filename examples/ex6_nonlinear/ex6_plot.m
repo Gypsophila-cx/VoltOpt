@@ -152,13 +152,26 @@ function saveFigureStable(fig, figDir, fileBase)
 
     set(fig, 'Renderer', 'painters');
 
+    oldUnits = get(fig, 'Units');
+    set(fig, 'Units', 'inches');
+    figPos = get(fig, 'Position');
+    figWidth  = figPos(3);
+    figHeight = figPos(4);
+
+    set(fig, 'PaperUnits', 'inches');
+    set(fig, 'PaperPositionMode', 'manual');
+    set(fig, 'PaperPosition', [0, 0, figWidth, figHeight]);
+    set(fig, 'PaperSize', [figWidth, figHeight]);
+
     try
-        print(fig, pdfFile, '-dpdf', '-vector', '-bestfit');
+        print(fig, pdfFile, '-dpdf', '-painters');
     catch
         warning('Painters PDF export failed. Trying OpenGL PDF export instead.');
         set(fig, 'Renderer', 'opengl');
-        print(fig, pdfFile, '-dpdf', '-bestfit');
+        print(fig, pdfFile, '-dpdf');
     end
 
     print(fig, pngFile, '-dpng', '-r300');
+
+    set(fig, 'Units', oldUnits);
 end

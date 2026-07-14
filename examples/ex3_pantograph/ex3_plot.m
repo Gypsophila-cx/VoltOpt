@@ -98,7 +98,7 @@ else
 end
 
 fig3 = figure('Color', 'w');
-spy(sparse(A), 'k.', 1.5);
+spy(sparse(A), 'k.', 5);
 xlabel('column index', 'Interpreter', 'latex');
 ylabel('row index', 'Interpreter', 'latex');
 axis square;
