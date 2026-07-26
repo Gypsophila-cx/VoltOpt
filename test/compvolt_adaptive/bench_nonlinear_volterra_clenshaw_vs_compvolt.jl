@@ -18,7 +18,7 @@
 #   data/bench_nonlinear_volterra_clenshaw_vs_compvolt.csv
 #
 # Run from the repository root:
-#   julia --project=. test/nonlinear_bench/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
+#   julia --project=. test/compvolt_adaptive/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
 
 using LinearAlgebra
 using Printf

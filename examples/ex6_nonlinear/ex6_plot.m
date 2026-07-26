@@ -87,7 +87,7 @@ set(ax1, 'YScale', 'log');
 
 xlabel(ax1, '$N$');
 ylabel(ax1, 'error');
-title(ax1, 'Fixed 10 Picard iterations: varying $N$');
+%title(ax1, 'Fixed 10 Picard iterations: varying $N$');
 
 box(ax1, 'on');
 set(ax1, 'FontSize', fontSize);
@@ -114,7 +114,7 @@ set(ax2, 'YScale', 'log');
 
 xlabel(ax2, 'iteration');
 ylabel(ax2, 'error');
-title(ax2, 'Picard iteration error history');
+%title(ax2, 'Picard iteration error history');
 
 box(ax2, 'on');
 set(ax2, 'FontSize', fontSize);

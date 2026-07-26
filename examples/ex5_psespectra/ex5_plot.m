@@ -62,7 +62,7 @@ clim([min(levels), max(levels)]);
 
 xlabel("$\mathrm{Re}(z)$", "Interpreter", "latex");
 ylabel("$\mathrm{Im}(z)$", "Interpreter", "latex");
-title("Pseudospectrum", "Interpreter", "latex");
+%title("Pseudospectrum", "Interpreter", "latex");
 
 axis equal tight;
 box on;

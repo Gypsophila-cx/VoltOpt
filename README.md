@@ -38,7 +38,7 @@ VoltOpt/
 |  |_ runtests.jl               lightweight package smoke tests
 |  |_ smooth_bench/             smooth-kernel benchmark scripts and plots
 |  |_ weaksingular_bench/       weakly singular benchmark scripts and plots
-|  |_ nonlinear_bench/          nonlinear Volterra action benchmark scripts and plots
+|  |_ compvolt_adaptive/        fixed/adaptive nonlinear compVolt tests, benchmarks, and plots
 |  |_ sparse_spy/               Volterra matrix sparsity/magnitude plot workflow
 |_ others/                      external/reference comparison code
 |  |_ GutlebOlver/              Gutleb--Olver-type comparison implementation
@@ -318,13 +318,13 @@ matlab -batch "run('test/weaksingular_bench/plot_weaksingular_bench.m')"
 ### Nonlinear Volterra Action Benchmarks
 
 ```bash
-julia --project=. test/nonlinear_bench/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
+julia --project=. test/compvolt_adaptive/bench_nonlinear_volterra_clenshaw_vs_compvolt.jl
 ```
 
 The nonlinear benchmark script writes CSV files to:
 
 ```text
-test/nonlinear_bench/data/
+test/compvolt_adaptive/data/
 ```
 
 This benchmark directly includes `src/CompVolt/clenshaw_valuemat.jl` as an
@@ -332,11 +332,23 @@ internal benchmark helper for comparison; that helper is not currently part of
 the exported package API.
 
 The MATLAB plotting script reads those CSV files and writes figures to
-`test/nonlinear_bench/figures/`:
+`test/compvolt_adaptive/figures/`:
 
 ```bash
-matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
+matlab -batch "run('test/compvolt_adaptive/plot_nonlinear_bench.m')"
 ```
+
+The same directory contains the adaptive-grid regression and oscillation
+diagnostic:
+
+```bash
+julia --project=. test/compvolt_adaptive/runtests.jl
+julia --project=. test/compvolt_adaptive/run_adaptive_oscillation.jl
+matlab -batch "run('test/compvolt_adaptive/plot_adaptive_oscillation.m')"
+```
+
+Adaptive CSV data, figures, and the experiment report are stored in the local
+`data/`, `figures/`, and `report/` subdirectories.
 
 ### Sparse Volterra Matrix Spy Diagnostics
 
@@ -392,7 +404,7 @@ figures, for example visual guides such as `O(N)`, `O(N^2 log N)`, or `O(N^3)`.
 These guides are not additional measured data. Their placement and scaling are
 controlled by the reference-line settings in the corresponding MATLAB scripts,
 including `test/smooth_bench/plot_end2end_smooth_bench.m`,
-`test/nonlinear_bench/plot_nonlinear_bench.m`, and
+`test/compvolt_adaptive/plot_nonlinear_bench.m`, and
 `examples/ex4_oscillatory/ex4_plot.m`.
 
 ## Notes on Reproducibility

@@ -1,6 +1,8 @@
 using Test
 using VoltOpt
 
+include(joinpath(@__DIR__, "compvolt_adaptive", "runtests.jl"))
+
 const PROJECT_ROOT = normpath(joinpath(@__DIR__, ".."))
 
 repo_path(parts...) = joinpath(PROJECT_ROOT, parts...)
@@ -20,7 +22,7 @@ end
         "test/smooth_bench/data",
         "test/smooth_bench/legacy",
         "test/weaksingular_bench/data",
-        "test/nonlinear_bench/data",
+        "test/compvolt_adaptive/data",
         "tools/audit_layout.jl",
     )
         @test ispath(repo_path(split(path, '/')...))

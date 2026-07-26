@@ -22,7 +22,7 @@
 %   data.
 %
 % Run:
-%   matlab -batch "run('test/nonlinear_bench/plot_nonlinear_bench.m')"
+%   matlab -batch "run('test/compvolt_adaptive/plot_nonlinear_bench.m')"
 
 clear; clc; close all;
 

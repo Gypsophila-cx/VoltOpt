@@ -8,15 +8,15 @@
 # where
 #
 #   K(x,y) = 1 / ((x+1)^2 + (y-1)^2),
-#   g(x)   = 1 + sin(pi*x)/(1000*x^2 + 1).
+#   g(x)   = ((1+x)/2)^(1/3) * (1 + sin(pi*x)/(1000*x^2 + 1)).
 #
 # Method:
 #   Weak_VoltMat_Cheb from src/ is used to assemble the weakly singular
 #   Volterra operator in a JFP/fractional-Chebyshev coefficient
-#   representation. With beta = 1 - mu = 0.5, the approximation is evaluated
-#   as a Chebyshev series in z = 2*((1+x)/2)^beta - 1. The operator is requested
-#   in packed lower-Hessenberg form and converted to a sparse matrix for the
-#   linear solve.
+#   representation. The weighted fractional-Chebyshev basis is
+#     ((1+x)/2)^alpha T_n(2*((1+x)/2)^beta - 1),
+#   with alpha = 1/3 and beta = 1/2. The operator is requested in packed
+#   lower-Hessenberg form and converted to a sparse matrix for the linear solve.
 #
 # Linear system:
 #   Weak_VoltMat_Cheb constructs V_K for
@@ -27,10 +27,10 @@
 #
 # Error:
 #   No exact solution is used. The script reports Cauchy errors by comparing
-#   the N approximation with the N_ref approximation, where
-#   N_ref = max(N+1, round(Int, 1.01*N)). err_coeff_inf is the internal
-#   JFP/Cheb coefficient-vector Cauchy difference; err_grid_inf on the fixed
-#   x-grid is the primary point-value error.
+#   the N approximation with the Nplus approximation, where
+#   Nplus = max(N+1, round(Int, 1.01*N)). The Cauchy error is the maximum
+#   point-value difference on the shared composite physical grid: at least
+#   10001 uniform x points plus 5001 uniform z=s^(1/6) points mapped to x.
 #
 # Output:
 #   examples/ex7_weaksingular/data/ex7_VoltMat_error.csv
@@ -50,12 +50,13 @@
 # Timing / benchmarking:
 #   Timing mode uses BenchmarkTools to estimate build and solve times by
 #   repeated sampling on log-spaced N values. Timing CSV columns report min,
-#   median, and mean times in seconds. Error CSV files do not contain timing
-#   statistics.
+#   median, q25, and q75 times in seconds. Error CSV files do not contain
+#   timing statistics.
 #
 #   Environment variables:
 #     EX7_BENCH_SAMPLES=5        number of benchmark samples
 #     EX7_BENCH_EVALS=1          evaluations per sample
+#     EX7_BENCH_SECONDS=120      maximum seconds per benchmark
 #
 #   Example quick benchmark run:
 #     EX7_RUN_MODE=timing EX7_BENCH_SAMPLES=3 EX7_TIMING_NMAX=100 julia --project=. examples/ex7_weaksingular/ex7_VoltMat.jl
@@ -86,22 +87,25 @@
 #   julia --project=. examples/ex7_weaksingular/ex7_VoltMat.jl
 #
 # Environment controls:
-#   EX7_VOLTMAT_NMAX   controls the largest error N, default 1500.
-#   EX7_VOLTMAT_STEP   controls the error N step, default 10.
-#   EX7_VOLTMAT_COND   controls whether to compute cond(A), default false.
+#   EX7_ERROR_NMIN        smallest error N, default 10.
+#   EX7_ERROR_NMAX        largest error N, default 2000.
+#   EX7_ERROR_STEP        uniform error step, default 10.
+#   EX7_ERROR_UNIFORM_POINTS   uniform physical-grid count, default 10001.
+#   EX7_ERROR_FRACTIONAL_POINTS uniform z=s^(1/6) count, default 5001.
 #   EX7_VOLTMAT_RESUME controls whether to skip existing successful N, default true.
-#   EX7_VOLTMAT_GRID_M controls the fixed check-grid size, default 2001.
 
 using LinearAlgebra
 using Printf
 using SparseArrays
 using BenchmarkTools
-using Statistics: mean, median
+using Statistics: median, quantile
 
 script_dir = @__DIR__
 project_root = normpath(joinpath(script_dir, "..", ".."))
 include(joinpath(project_root, "src", "VoltOpt.jl"))
 using .VoltOpt
+include(joinpath(script_dir, "ex7_common.jl"))
+using .Ex7Common
 
 function kernel_xy(x::Real, y::Real)
     xf = Float64(x)
@@ -109,9 +113,21 @@ function kernel_xy(x::Real, y::Real)
     return 1.0 / ((xf + 1.0)^2 + (yf - 1.0)^2)
 end
 
-function rhs_x(x::Real)
+function rhs_factor_x(x::Real)
     xf = Float64(x)
     return 1.0 + sin(pi * xf) / (1000.0 * xf^2 + 1.0)
+end
+
+function rhs_x(x::Real)
+    xf = Float64(x)
+    return ((1.0 + xf) / 2.0)^(1.0 / 3.0) * rhs_factor_x(xf)
+end
+
+function rhs_basis_factor_x(x::Real, alpha::Float64)
+    xf = Float64(x)
+    s = (1.0 + xf) / 2.0
+    # At s=0 the quotient rhs_x(x)/s^alpha is defined by its finite limit.
+    return s == 0.0 ? rhs_factor_x(xf) : rhs_x(xf) / s^alpha
 end
 
 phi_beta_local(x::Real, beta::Float64) =
@@ -136,8 +152,11 @@ function cheb_eval(c::AbstractVector{<:Real}, z::Real)
     return zz * bkp1 - bkp2 + Float64(c[1])
 end
 
-eval_jfp(c::AbstractVector{<:Real}, x::Real, beta::Float64) =
-    cheb_eval(c, phi_beta_local(x, beta))
+eval_jfp(c::AbstractVector{<:Real}, x::Real, alpha::Float64, beta::Float64) =
+    ((1.0 + Float64(x)) / 2.0)^alpha * cheb_eval(c, phi_beta_local(x, beta))
+
+eval_jfp_s(c::AbstractVector{<:Real}, s::Real, alpha::Float64, beta::Float64) =
+    Float64(s)^alpha * cheb_eval(c, 2.0 * Float64(s)^beta - 1.0)
 
 function cheb_project_lobatto(f, coeff_degree::Int, sample_degree::Int)
     coeff_degree <= sample_degree ||
@@ -166,9 +185,11 @@ function cheb_project_lobatto(f, coeff_degree::Int, sample_degree::Int)
     return c
 end
 
-function build_rhs_coefficients(max_degree::Int, beta::Float64)
+function build_rhs_coefficients(max_degree::Int, alpha::Float64, beta::Float64)
     sample_degree = max(8192, 4 * max_degree)
-    rhs_z = z -> rhs_x(invphi_beta_local(z, beta))
+    # The weighted basis already contains ((1+x)/2)^alpha, so project only
+    # the remaining smooth factor. This also avoids a 0/0 division at x=-1.
+    rhs_z = z -> rhs_basis_factor_x(invphi_beta_local(z, beta), alpha)
 
     coeffs = nothing
     rhs_time = @elapsed begin
@@ -239,10 +260,10 @@ function operator_to_sparse(V, n::Int)
     end
 end
 
-function system_matrix(VK::SparseMatrixCSC, lambda_vie::Float64)
+function system_matrix(VK::SparseMatrixCSC)
     n = size(VK, 1)
     size(VK, 2) == n || throw(DimensionMismatch("operator matrix must be square"))
-    A = lambda_vie .* copy(VK)
+    A = 0.5 .* copy(VK)
     @inbounds for i in 1:n
         A[i, i] += 1.0
     end
@@ -263,15 +284,15 @@ function build_voltmat_system(
     C::AbstractMatrix,
     rhs_coeffs::AbstractVector,
     mu::Float64,
+    alpha::Float64,
     beta::Float64,
-    lambda_vie::Float64,
 )
     rhsN = rhs_coeffs[1:(N + 1)]
     Vraw, _info = VoltOpt.weak_voltmat_cheb(
         C;
         C_is_coeffs = true,
         mu = mu,
-        sigma = 0.0,
+        sigma = alpha,
         beta = beta,
         N = N,
         diagnostics = false,
@@ -279,7 +300,13 @@ function build_voltmat_system(
         return_info = true,
     )
     VK = operator_to_sparse(Vraw, N + 1)
-    A = system_matrix(VK, lambda_vie)
+    # For nonzero sigma, the current core interface returns columns with the
+    # unnormalised endpoint factor (1+x)^sigma, while this example and the
+    # public basis use ((1+x)/2)^alpha. Restore the physical operator scaling
+    # here without changing the core algorithm. The equation coefficient in
+    # system_matrix remains exactly 0.5.
+    VK .*= 2.0^alpha
+    A = system_matrix(VK)
     return (VK = VK, A = A, rhs = rhsN)
 end
 
@@ -288,13 +315,12 @@ function solve_degree(
     C::AbstractMatrix,
     rhs_coeffs::AbstractVector,
     mu::Float64,
+    alpha::Float64,
     beta::Float64,
-    lambda_vie::Float64;
-    compute_cond::Bool,
 )
     built = nothing
     build_time = @elapsed begin
-        built = build_voltmat_system(N, C, rhs_coeffs, mu, beta, lambda_vie)
+        built = build_voltmat_system(N, C, rhs_coeffs, mu, alpha, beta)
     end
 
     coeffs = nothing
@@ -303,9 +329,8 @@ function solve_degree(
     end
 
     linear_residual_inf = norm(built.A * coeffs - built.rhs, Inf)
-    # Same discrete equation residual for (I + lambda_vie*V_K)c = rhs.
+    # Same discrete equation residual for (I + 0.5*V_K)c = rhs.
     residual_inf = linear_residual_inf
-    cond_A = compute_cond ? cond(Matrix(built.A)) : NaN
     maxabs_V = maxabs_matrix(built.VK)
     maxabs_A = maxabs_matrix(built.A)
     # maxabs_u is the maximum absolute value of the solved coefficient vector.
@@ -321,7 +346,6 @@ function solve_degree(
         solve_time = solve_time,
         residual_inf = residual_inf,
         linear_residual_inf = linear_residual_inf,
-        cond_A = cond_A,
         maxabs_V = maxabs_V,
         maxabs_A = maxabs_A,
         maxabs_u = maxabs_u,
@@ -333,7 +357,9 @@ function trial_seconds(trial)
     return (
         min = minimum(times),
         median = median(times),
-        mean = mean(times),
+        q25 = quantile(times, 0.25),
+        q75 = quantile(times, 0.75),
+        samples = length(times),
     )
 end
 
@@ -342,26 +368,27 @@ function benchmark_main_times(
     C::AbstractMatrix,
     rhs_coeffs::AbstractVector,
     mu::Float64,
+    alpha::Float64,
     beta::Float64,
-    lambda_vie::Float64,
     A,
     rhs,
     bench_samples::Int,
     bench_evals::Int,
+    bench_seconds::Float64,
 )
     trial_build = @benchmark build_voltmat_system(
         $N,
         $C,
         $rhs_coeffs,
         $mu,
+        $alpha,
         $beta,
-        $lambda_vie,
-    ) samples=bench_samples evals=bench_evals
+    ) samples=bench_samples evals=bench_evals seconds=bench_seconds
     build_stats = trial_seconds(trial_build)
 
     A_bench = copy(A)
     rhs_bench = copy(rhs)
-    trial_solve = @benchmark $A_bench \ $rhs_bench samples=bench_samples evals=bench_evals
+    trial_solve = @benchmark $A_bench \ $rhs_bench samples=bench_samples evals=bench_evals seconds=bench_seconds
     solve_stats = trial_seconds(trial_solve)
 
     return build_stats, solve_stats
@@ -385,27 +412,19 @@ function logspace_int_unique(nmin::Int, nmax::Int, npts::Int)
     return unique(sort(Ns))
 end
 
-function coeff_cauchy(cN::AbstractVector, c_ref::AbstractVector)
-    nN = length(cN)
-    nR = length(c_ref)
-    nmin = min(nN, nR)
-    err = norm(@view(cN[1:nmin]) .- @view(c_ref[1:nmin]), Inf)
-    if nN > nmin
-        err = max(err, norm(@view(cN[(nmin + 1):nN]), Inf))
-    end
-    if nR > nmin
-        err = max(err, norm(@view(c_ref[(nmin + 1):nR]), Inf))
-    end
-    return err
-end
-
-function grid_cauchy(cN::AbstractVector, c_ref::AbstractVector, xgrid, beta::Float64)
+function grid_cauchy(cN::AbstractVector, c_ref::AbstractVector, grid,
+        alpha::Float64, beta::Float64)
     err = 0.0
-    @inbounds for x in xgrid
-        e = abs(eval_jfp(cN, x, beta) - eval_jfp(c_ref, x, beta))
-        err = max(err, e)
+    max_error_x = grid.x[1]
+    @inbounds for j in eachindex(grid.x, grid.s)
+        e = abs(eval_jfp_s(cN, grid.s[j], alpha, beta) -
+                eval_jfp_s(c_ref, grid.s[j], alpha, beta))
+        if e > err
+            err = e
+            max_error_x = grid.x[j]
+        end
     end
-    return err
+    return err, max_error_x
 end
 
 function csv_field(x::AbstractString)
@@ -428,10 +447,9 @@ end
 
 function write_error_header(io)
     println(io,
-        "method,N,N_ref,mu," *
-        "err_coeff_inf,err_grid_inf," *
+        "method,N,Nplus,mu,alpha,beta,cauchy_error,max_error_x,test_grid_size," *
         "residual_inf,linear_residual_inf," *
-        "cond_A,maxabs_V,maxabs_A,maxabs_u,status",
+        "maxabs_V,maxabs_A,maxabs_u,status",
     )
     flush(io)
     return nothing
@@ -439,11 +457,11 @@ end
 
 function write_timing_header(io)
     println(io,
-        "method,N,mu," *
-        "build_time_min,build_time_median,build_time_mean," *
-        "solve_time_min,solve_time_median,solve_time_mean," *
-        "total_time_min,total_time_median,total_time_mean," *
-        "bench_samples,bench_evals,status",
+        "method,N,mu,alpha,beta," *
+        "build_min,build_median,build_q25,build_q75," *
+        "solve_min,solve_median,solve_q25,solve_q75," *
+        "total_min,total_median,build_samples,solve_samples," *
+        "bench_evals,bench_seconds,status",
     )
     flush(io)
     return nothing
@@ -582,15 +600,17 @@ function prepare_csv(
     return Set(keys(rows_by_N)), success_count, failed_count, duplicate_success
 end
 
-function error_failure_row(N, N_ref, mu, status)
+function error_failure_row(N, Nplus, mu, alpha, beta, test_grid_size, status)
     return (
-        "VoltMat",
+        "Weak Duffy--CFP",
         N,
-        N_ref,
+        Nplus,
         mu,
+        alpha,
+        beta,
         NaN,
         NaN,
-        NaN,
+        test_grid_size,
         NaN,
         NaN,
         NaN,
@@ -600,11 +620,13 @@ function error_failure_row(N, N_ref, mu, status)
     )
 end
 
-function timing_failure_row(N, mu, bench_samples, bench_evals, status)
+function timing_failure_row(N, mu, alpha, beta, bench_evals, bench_seconds, status)
     return (
-        "VoltMat",
+        "Weak Duffy--CFP",
         N,
         mu,
+        alpha,
+        beta,
         NaN,
         NaN,
         NaN,
@@ -614,13 +636,16 @@ function timing_failure_row(N, mu, bench_samples, bench_evals, status)
         NaN,
         NaN,
         NaN,
-        bench_samples,
+        NaN,
+        0,
+        0,
         bench_evals,
+        bench_seconds,
         clean_status(status),
     )
 end
 
-function csv_summary(csv_path::AbstractString; expect_cond_nan::Bool)
+function csv_summary(csv_path::AbstractString)
     rows = 0
     completed_success = 0
     failed = 0
@@ -628,15 +653,13 @@ function csv_summary(csv_path::AbstractString; expect_cond_nan::Bool)
     max_success_N = 0
     seen = Set{Int}()
     duplicate_N = Int[]
-    bad_success_err_grid = Int[]
+    bad_success_cauchy = Int[]
     bad_success_residual = Int[]
-    bad_success_cond = Int[]
     statuses = String[]
 
     if !isfile(csv_path) || filesize(csv_path) == 0
         return (; rows, completed_success, failed, nonfinite, max_success_N,
-            duplicate_N, bad_success_err_grid, bad_success_residual,
-            bad_success_cond, statuses)
+            duplicate_N, bad_success_cauchy, bad_success_residual, statuses)
     end
 
     open(csv_path, "r") do io
@@ -668,16 +691,10 @@ function csv_summary(csv_path::AbstractString; expect_cond_nan::Bool)
             if status == "success"
                 completed_success += 1
                 max_success_N = max(max_success_N, N)
-                err_grid = parse_float_field(fields, colmap, "err_grid_inf")
+                cauchy_error = parse_float_field(fields, colmap, "cauchy_error")
                 residual = parse_float_field(fields, colmap, "residual_inf")
-                cond_A = parse_float_field(fields, colmap, "cond_A")
-                isfinite(err_grid) || push!(bad_success_err_grid, N)
+                isfinite(cauchy_error) || push!(bad_success_cauchy, N)
                 isfinite(residual) || push!(bad_success_residual, N)
-                if expect_cond_nan
-                    isnan(cond_A) || push!(bad_success_cond, N)
-                else
-                    isfinite(cond_A) || push!(bad_success_cond, N)
-                end
             elseif startswith(status, "failed:")
                 failed += 1
             elseif status == "nonfinite"
@@ -687,8 +704,7 @@ function csv_summary(csv_path::AbstractString; expect_cond_nan::Bool)
     end
 
     return (; rows, completed_success, failed, nonfinite, max_success_N,
-        duplicate_N, bad_success_err_grid, bad_success_residual,
-        bad_success_cond, statuses)
+        duplicate_N, bad_success_cauchy, bad_success_residual, statuses)
 end
 
 function print_summary(summary, csv_path::AbstractString)
@@ -699,9 +715,8 @@ function print_summary(summary, csv_path::AbstractString)
     println("nonfinite = ", summary.nonfinite)
     println("max_success_N = ", summary.max_success_N)
     println("duplicate_N_count = ", length(summary.duplicate_N))
-    println("bad_success_err_grid_count = ", length(summary.bad_success_err_grid))
+    println("bad_success_cauchy_count = ", length(summary.bad_success_cauchy))
     println("bad_success_residual_count = ", length(summary.bad_success_residual))
-    println("bad_success_cond_count = ", length(summary.bad_success_cond))
     println("statuses = ", join(summary.statuses, "; "))
     println("csv_path = ", csv_path)
     println("------------------------------------------------------------")
@@ -753,15 +768,16 @@ function timing_summary(csv_path::AbstractString)
                 completed_success += 1
                 max_success_N = max(max_success_N, N)
                 vals = (
-                    parse_float_field(fields, colmap, "build_time_min"),
-                    parse_float_field(fields, colmap, "build_time_median"),
-                    parse_float_field(fields, colmap, "build_time_mean"),
-                    parse_float_field(fields, colmap, "solve_time_min"),
-                    parse_float_field(fields, colmap, "solve_time_median"),
-                    parse_float_field(fields, colmap, "solve_time_mean"),
-                    parse_float_field(fields, colmap, "total_time_min"),
-                    parse_float_field(fields, colmap, "total_time_median"),
-                    parse_float_field(fields, colmap, "total_time_mean"),
+                    parse_float_field(fields, colmap, "build_min"),
+                    parse_float_field(fields, colmap, "build_median"),
+                    parse_float_field(fields, colmap, "build_q25"),
+                    parse_float_field(fields, colmap, "build_q75"),
+                    parse_float_field(fields, colmap, "solve_min"),
+                    parse_float_field(fields, colmap, "solve_median"),
+                    parse_float_field(fields, colmap, "solve_q25"),
+                    parse_float_field(fields, colmap, "solve_q75"),
+                    parse_float_field(fields, colmap, "total_min"),
+                    parse_float_field(fields, colmap, "total_median"),
                 )
                 all(t -> isfinite(t) && t > 0.0, vals) || push!(bad_time, N)
             elseif startswith(status, "failed:")
@@ -805,25 +821,25 @@ end
 
 function run_error(
     Ns_error,
-    xgrid,
+    grid,
     csv_path::AbstractString,
     resume::Bool,
-    compute_cond::Bool,
     mu::Float64,
+    alpha::Float64,
     beta::Float64,
-    lambda_vie::Float64,
 )
     required_cols = (
-        "method", "N", "N_ref", "mu",
-        "err_coeff_inf", "err_grid_inf", "residual_inf", "linear_residual_inf",
-        "cond_A", "maxabs_V", "maxabs_A", "maxabs_u", "status",
+        "method", "N", "Nplus", "mu", "alpha", "beta", "cauchy_error",
+        "max_error_x", "test_grid_size",
+        "residual_inf", "linear_residual_inf",
+        "maxabs_V", "maxabs_A", "maxabs_u", "status",
     )
     completed_Ns, existing_success, existing_failed, existing_dup_success =
         prepare_csv(csv_path, Ns_error, resume, write_error_header, required_cols)
 
     max_ref = maximum(max(N + 1, round(Int, 1.01 * N)) for N in Ns_error)
     println("Error CSV = ", csv_path)
-    println("max N_ref = ", max_ref)
+    println("max Nplus = ", max_ref)
     if resume
         println("error resume existing success rows = ", existing_success,
             ", existing failed/non-success rows dropped = ", existing_failed,
@@ -832,7 +848,7 @@ function run_error(
     end
 
     C, kernel_time, kernel_tail, kernel_i, kernel_j = build_kernel_coefficients(beta)
-    rhs_coeffs, rhs_time, rhs_sample_degree = build_rhs_coefficients(max_ref, beta)
+    rhs_coeffs, rhs_time, rhs_sample_degree = build_rhs_coefficients(max_ref, alpha, beta)
     print_kernel_rhs_info(C, kernel_time, kernel_tail, kernel_i, kernel_j,
         rhs_coeffs, rhs_time, max_ref, rhs_sample_degree)
 
@@ -844,57 +860,61 @@ function run_error(
                 continue
             end
 
-            N_ref = max(N + 1, round(Int, 1.01 * N))
+            Nplus = max(N + 1, round(Int, 1.01 * N))
             try
-                println("Error N = ", N, ", N_ref = ", N_ref)
+                println("Error N = ", N, ", Nplus = ", Nplus)
                 solN = solve_degree(
                     N,
                     C,
                     rhs_coeffs,
                     mu,
+                    alpha,
                     beta,
-                    lambda_vie;
-                    compute_cond = compute_cond,
                 )
 
-                err_coeff_inf = NaN
-                err_grid_inf = NaN
+                cauchy_error = NaN
+                max_error_x = NaN
                 ref_error_time = @elapsed begin
                     sol_ref = solve_degree(
-                        N_ref,
+                        Nplus,
                         C,
                         rhs_coeffs,
                         mu,
+                        alpha,
                         beta,
-                        lambda_vie;
-                        compute_cond = false,
                     )
-                    err_coeff_inf = coeff_cauchy(solN.coeffs, sol_ref.coeffs)
-                    err_grid_inf = grid_cauchy(solN.coeffs, sol_ref.coeffs, xgrid, beta)
+                    cauchy_error, max_error_x = grid_cauchy(
+                        solN.coeffs,
+                        sol_ref.coeffs,
+                        grid,
+                        alpha,
+                        beta,
+                    )
                 end
 
                 required_diagnostics = (
-                    err_coeff_inf,
-                    err_grid_inf,
+                    cauchy_error,
+                    max_error_x,
                     solN.residual_inf,
                     solN.linear_residual_inf,
                     solN.maxabs_V,
                     solN.maxabs_A,
                     solN.maxabs_u,
                 )
-                cond_ok = !compute_cond || isfinite(solN.cond_A)
-                status = all(isfinite, required_diagnostics) && cond_ok ? "success" : "nonfinite"
+                status = all(isfinite, required_diagnostics) ? "success" : "nonfinite"
 
                 write_csv_row(io, (
-                    "VoltMat",
+                    "Weak Duffy--CFP",
                     N,
-                    N_ref,
+                    Nplus,
                     mu,
-                    err_coeff_inf,
-                    err_grid_inf,
+                    alpha,
+                    beta,
+                    cauchy_error,
+                    max_error_x,
+                    grid.total_count,
                     solN.residual_inf,
                     solN.linear_residual_inf,
-                    solN.cond_A,
                     solN.maxabs_V,
                     solN.maxabs_A,
                     solN.maxabs_u,
@@ -904,22 +924,23 @@ function run_error(
                 @printf("  single build_time = %.6e\n", solN.build_time)
                 @printf("  single solve_time = %.6e\n", solN.solve_time)
                 @printf("  ref_error_time = %.6e\n", ref_error_time)
-                @printf("  err_grid_inf = %.6e\n", err_grid_inf)
+                @printf("  cauchy_error = %.6e\n", cauchy_error)
+                @printf("  max_error_x = %.17e\n", max_error_x)
                 @printf("  residual_inf = %.6e\n", solN.residual_inf)
-                @printf("  cond_A = %s\n",
-                    isnan(solN.cond_A) ? "NaN" : @sprintf("%.6e", solN.cond_A))
                 println("  status = ", status)
             catch err
                 status = "failed: " * sprint(showerror, err)
-                write_csv_row(io, error_failure_row(N, N_ref, mu, status))
-                @printf("[%3d/%3d] N=%5d N_ref=%5d ERROR FAILED: %s\n",
-                    idx, length(Ns_error), N, N_ref, clean_status(status))
+                write_csv_row(io, error_failure_row(
+                    N, Nplus, mu, alpha, beta, grid.total_count, status,
+                ))
+                @printf("[%3d/%3d] N=%5d Nplus=%5d ERROR FAILED: %s\n",
+                    idx, length(Ns_error), N, Nplus, clean_status(status))
             end
         end
     end
 
     println("wrote ", csv_path)
-    summary = csv_summary(csv_path; expect_cond_nan = !compute_cond)
+    summary = csv_summary(csv_path)
     print_summary(summary, csv_path)
     return summary
 end
@@ -929,17 +950,18 @@ function run_timing(
     csv_path::AbstractString,
     resume::Bool,
     mu::Float64,
+    alpha::Float64,
     beta::Float64,
-    lambda_vie::Float64,
     bench_samples::Int,
     bench_evals::Int,
+    bench_seconds::Float64,
 )
     required_cols = (
-        "method", "N", "mu",
-        "build_time_min", "build_time_median", "build_time_mean",
-        "solve_time_min", "solve_time_median", "solve_time_mean",
-        "total_time_min", "total_time_median", "total_time_mean",
-        "bench_samples", "bench_evals", "status",
+        "method", "N", "mu", "alpha", "beta",
+        "build_min", "build_median", "build_q25", "build_q75",
+        "solve_min", "solve_median", "solve_q25", "solve_q75",
+        "total_min", "total_median", "build_samples", "solve_samples",
+        "bench_evals", "bench_seconds", "status",
     )
     completed_Ns, existing_success, existing_failed, existing_dup_success =
         prepare_csv(csv_path, Ns_timing, resume, write_timing_header, required_cols)
@@ -955,9 +977,14 @@ function run_timing(
 
     max_timing_N = maximum(Ns_timing)
     C, kernel_time, kernel_tail, kernel_i, kernel_j = build_kernel_coefficients(beta)
-    rhs_coeffs, rhs_time, rhs_sample_degree = build_rhs_coefficients(max_timing_N, beta)
+    rhs_coeffs, rhs_time, rhs_sample_degree = build_rhs_coefficients(max_timing_N, alpha, beta)
     print_kernel_rhs_info(C, kernel_time, kernel_tail, kernel_i, kernel_j,
         rhs_coeffs, rhs_time, max_timing_N, rhs_sample_degree)
+
+    warm_N = first(Ns_timing)
+    println("precompile/warm-up N = ", warm_N)
+    warm = build_voltmat_system(warm_N, C, rhs_coeffs, mu, alpha, beta)
+    _ = warm.A \ warm.rhs
 
     open(csv_path, "a") do io
         for (idx, N) in enumerate(Ns_timing)
@@ -969,50 +996,58 @@ function run_timing(
 
             try
                 println("Timing N = ", N)
-                built = build_voltmat_system(N, C, rhs_coeffs, mu, beta, lambda_vie)
+                # Per-N build and solve warm-up are outside the formal trials.
+                built = build_voltmat_system(N, C, rhs_coeffs, mu, alpha, beta)
+                _ = built.A \ built.rhs
                 build_stats, solve_stats = benchmark_main_times(
                     N,
                     C,
                     rhs_coeffs,
                     mu,
+                    alpha,
                     beta,
-                    lambda_vie,
                     built.A,
                     built.rhs,
                     bench_samples,
                     bench_evals,
+                    bench_seconds,
                 )
                 total_min = build_stats.min + solve_stats.min
                 total_median = build_stats.median + solve_stats.median
-                total_mean = build_stats.mean + solve_stats.mean
                 time_ok = all(t -> isfinite(t) && t > 0.0, (
                     build_stats.min,
                     build_stats.median,
-                    build_stats.mean,
+                    build_stats.q25,
+                    build_stats.q75,
                     solve_stats.min,
                     solve_stats.median,
-                    solve_stats.mean,
+                    solve_stats.q25,
+                    solve_stats.q75,
                     total_min,
                     total_median,
-                    total_mean,
                 ))
                 status = time_ok ? "success" : "nonfinite"
 
                 write_csv_row(io, (
-                    "VoltMat",
+                    "Weak Duffy--CFP",
                     N,
                     mu,
+                    alpha,
+                    beta,
                     build_stats.min,
                     build_stats.median,
-                    build_stats.mean,
+                    build_stats.q25,
+                    build_stats.q75,
                     solve_stats.min,
                     solve_stats.median,
-                    solve_stats.mean,
+                    solve_stats.q25,
+                    solve_stats.q75,
                     total_min,
                     total_median,
-                    total_mean,
-                    bench_samples,
+                    build_stats.samples,
+                    solve_stats.samples,
                     bench_evals,
+                    bench_seconds,
                     status,
                 ))
 
@@ -1022,7 +1057,9 @@ function run_timing(
                 println("  status = ", status)
             catch err
                 status = "failed: " * sprint(showerror, err)
-                write_csv_row(io, timing_failure_row(N, mu, bench_samples, bench_evals, status))
+                write_csv_row(io, timing_failure_row(
+                    N, mu, alpha, beta, bench_evals, bench_seconds, status,
+                ))
                 @printf("[%3d/%3d] N=%5d TIMING FAILED: %s\n",
                     idx, length(Ns_timing), N, clean_status(status))
             end
@@ -1037,33 +1074,38 @@ end
 
 function main()
     mu = 0.5
-    beta = 1.0 - mu
-    lambda_vie = 0.5
+    alpha = 1.0 / 3.0
+    beta = 0.5
 
     run_mode = lowercase(get(ENV, "EX7_RUN_MODE", "both"))
     run_mode in ("error", "timing", "both") ||
         throw(ArgumentError("EX7_RUN_MODE must be error, timing, or both"))
 
-    nmax = parse(Int, get(ENV, "EX7_VOLTMAT_NMAX", "1500"))
-    nstep = parse(Int, get(ENV, "EX7_VOLTMAT_STEP", "10"))
+    error_nmin = parse(Int, get(ENV, "EX7_ERROR_NMIN", "10"))
+    error_nmax = parse(Int, get(ENV, "EX7_ERROR_NMAX",
+        get(ENV, "EX7_VOLTMAT_NMAX", "2000")))
+    error_step = parse(Int, get(ENV, "EX7_ERROR_STEP",
+        get(ENV, "EX7_VOLTMAT_STEP", "10")))
+    uniform_grid_points = parse(Int, get(ENV, "EX7_ERROR_UNIFORM_POINTS", "10001"))
+    fractional_grid_points = parse(Int, get(ENV, "EX7_ERROR_FRACTIONAL_POINTS", "5001"))
     resume = parse_bool_env("EX7_VOLTMAT_RESUME", "true")
-    grid_m = parse(Int, get(ENV, "EX7_VOLTMAT_GRID_M", "2001"))
-    compute_cond = parse_bool_env("EX7_VOLTMAT_COND", "false")
     timing_nmin = parse(Int, get(ENV, "EX7_TIMING_NMIN", "10"))
     timing_nmax = parse(Int, get(ENV, "EX7_TIMING_NMAX", "1500"))
     timing_npts = parse(Int, get(ENV, "EX7_TIMING_NPTS", "100"))
     bench_samples = parse(Int, get(ENV, "EX7_BENCH_SAMPLES", "5"))
     bench_evals = parse(Int, get(ENV, "EX7_BENCH_EVALS", "1"))
+    bench_seconds = parse(Float64, get(ENV, "EX7_BENCH_SECONDS", "120"))
 
-    nmax >= 10 || throw(ArgumentError("EX7_VOLTMAT_NMAX must be at least 10"))
-    nstep > 0 || throw(ArgumentError("EX7_VOLTMAT_STEP must be positive"))
-    grid_m >= 2 || throw(ArgumentError("EX7_VOLTMAT_GRID_M must be at least 2"))
     bench_samples > 0 || throw(ArgumentError("EX7_BENCH_SAMPLES must be positive"))
     bench_evals > 0 || throw(ArgumentError("EX7_BENCH_EVALS must be positive"))
+    bench_seconds > 0 || throw(ArgumentError("EX7_BENCH_SECONDS must be positive"))
 
-    Ns_error = collect(10:nstep:nmax)
+    Ns_error = error_degrees(error_nmax;
+        nmin = error_nmin,
+        step = error_step,
+    )
     Ns_timing = logspace_int_unique(timing_nmin, timing_nmax, timing_npts)
-    xgrid = collect(range(-1.0, 1.0; length = grid_m))
+    grid = composite_test_grid(uniform_grid_points, fractional_grid_points)
 
     data_dir = joinpath(script_dir, "data")
     mkpath(data_dir)
@@ -1072,27 +1114,29 @@ function main()
 
     println("ex7_VoltMat.jl")
     println("run mode = ", run_mode)
-    @printf("mu = %.16g, beta = %.16g, equation lambda = %.16g\n", mu, beta, lambda_vie)
+    @printf("mu = %.16g, alpha = %.16g, beta = %.16g\n", mu, alpha, beta)
     println("linear system = (I + 0.5 V_K) u = g")
-    println("error N range = ", first(Ns_error), ":", nstep, ":", last(Ns_error),
+    println("error N rule = ", error_nmin, ":", error_step, ":", error_nmax,
         " (", length(Ns_error), " cases)")
     println("timing N range = ", first(Ns_timing), " to ", last(Ns_timing),
         " (", length(Ns_timing), " log-spaced unique cases)")
-    println("grid points = ", grid_m)
-    println("compute cond_A = ", compute_cond)
-    println("benchmark samples = ", bench_samples, ", evals = ", bench_evals)
+    println("composite grid = ", grid.uniform_count, " uniform x + ",
+        grid.fractional_count, " uniform z=s^(1/6); merged unique x = ",
+        grid.total_count)
+    println("Julia threads = ", Threads.nthreads(), ", BLAS threads = ", BLAS.get_num_threads())
+    println("benchmark samples = ", bench_samples, ", evals = ", bench_evals,
+        ", seconds = ", bench_seconds)
     println("resume = ", resume)
 
     if run_mode in ("error", "both")
         run_error(
             Ns_error,
-            xgrid,
+            grid,
             error_csv_path,
             resume,
-            compute_cond,
             mu,
+            alpha,
             beta,
-            lambda_vie,
         )
     end
 
@@ -1102,14 +1146,17 @@ function main()
             timing_csv_path,
             resume,
             mu,
+            alpha,
             beta,
-            lambda_vie,
             bench_samples,
             bench_evals,
+            bench_seconds,
         )
     end
 
     return (error_csv = error_csv_path, timing_csv = timing_csv_path)
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

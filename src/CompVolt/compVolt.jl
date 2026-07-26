@@ -350,6 +350,79 @@ function _cv_restricted_vals_from_pad(cpad::AbstractVector)
     return cheb2vals_2d_fft(C)
 end
 
+function _cv_coefficient_float_type(cu::AbstractVector)
+    eltype(cu) <: Real || throw(ArgumentError(
+        "compVolt_nonlinear_fast currently requires real Chebyshev coefficients; " *
+        "got eltype $(eltype(cu)).",
+    ))
+
+    T = typeof(float(real(zero(eltype(cu)))))
+    (T === Float32 || T === Float64) || throw(ArgumentError(
+        "compVolt_nonlinear_fast uses FFTW DCT-I transforms and supports Float32 " *
+        "and Float64 coefficient arithmetic; got floating-point type $T. " *
+        "BigFloat is not supported by this DCT backend.",
+    ))
+    return T
+end
+
+@noinline function _cv_nonfinite_error(
+    stage::AbstractString,
+    M::Int,
+    mode::Symbol,
+    level::Symbol,
+)
+    context = if mode === :fixed
+        "fixed-grid mode at M=$M"
+    elseif level === :fine
+        "adaptive fine-grid evaluation at fine-grid M=$M"
+    else
+        "adaptive coarse-grid evaluation at M=$M"
+    end
+    error("Non-finite value detected during $stage in $context.")
+end
+
+@inline function _cv_check_finite(
+    value::Number,
+    stage::AbstractString,
+    M::Int,
+    mode::Symbol,
+    level::Symbol,
+)
+    isfinite(value) || _cv_nonfinite_error(stage, M, mode, level)
+    return value
+end
+
+function _cv_check_finite(
+    values::AbstractArray,
+    stage::AbstractString,
+    M::Int,
+    mode::Symbol,
+    level::Symbol,
+)
+    all(isfinite, values) || _cv_nonfinite_error(stage, M, mode, level)
+    return values
+end
+
+# Construct the coefficients of u((1+x)t/2 + (x-1)/2) once. Every adaptive
+# level below obtains its values solely by zero-padding this matrix.
+function _cv_restriction_coefficients(cu::AbstractVector, ::Type{T}) where {T<:AbstractFloat}
+    c = Vector{T}(undef, length(cu))
+    @inbounds for i in eachindex(cu)
+        c[i] = iseven(i) ? -T(cu[i]) : T(cu[i])
+    end
+    return multrestrict(c)
+end
+
+function _cv_restricted_values(C::AbstractMatrix, M::Int)
+    m, n = size(C)
+    m == n || error("The restricted Chebyshev coefficient matrix must be square.")
+    m <= M + 1 || error("The evaluation degree M must cover the restricted coefficients.")
+
+    Cpad = zeros(eltype(C), M + 1, M + 1)
+    @views Cpad[1:m, 1:m] .= C
+    return cheb2vals_2d_fft(Cpad)
+end
+
 # ----------------------------
 # Reusable grid data
 # ----------------------------
@@ -379,6 +452,55 @@ function CompVoltGrid(N::Int)
     return CompVoltGrid(N_even, x, w, scale, shift)
 end
 
+function _cv_clenshaw_curtis_weights(M::Int, ::Type{T}) where {T<:AbstractFloat}
+    M >= 1 || throw(ArgumentError("The Chebyshev grid degree must be at least 1."))
+
+    w = zeros(T, M + 1)
+    piT = T(pi)
+    invM = inv(T(M))
+    @inbounds for k in 0:M
+        endpoint_factor = (k == 0 || k == M) ? one(T) : T(2)
+        s = zero(T)
+        for j in 1:fld(M, 2)
+            mode_factor = (2j == M) ? one(T) : T(2)
+            denominator = T(4j^2 - 1)
+            s += (mode_factor / denominator) * cos(T(2j * k) * piT * invM)
+        end
+        w[k + 1] = endpoint_factor * invM * (one(T) - s)
+    end
+    return w
+end
+
+function _cv_exact_grid(
+    M::Int,
+    ::Type{T};
+    coarse::Union{Nothing,CompVoltGrid}=nothing,
+) where {T<:AbstractFloat}
+    M >= 1 || throw(ArgumentError("The Chebyshev grid degree M must be at least 1."))
+
+    x = Vector{T}(undef, M + 1)
+    piT = T(pi)
+    invM = inv(T(M))
+    @inbounds for j in 1:(M + 1)
+        x[j] = cos(T(M - j + 1) * piT * invM)
+    end
+
+    # Mathematically these entries are identical. Copying them makes the
+    # 1:2:end nesting exact in floating-point arithmetic as well.
+    if coarse !== nothing && M == 2 * coarse.N
+        @views x[1:2:end] .= coarse.x
+    end
+
+    w = _cv_clenshaw_curtis_weights(M, T)
+    scale = similar(x)
+    shift = similar(x)
+    @inbounds for j in eachindex(x)
+        scale[j] = (x[j] + one(T)) / T(2)
+        shift[j] = (x[j] - one(T)) / T(2)
+    end
+    return CompVoltGrid(M, x, w, scale, shift)
+end
+
 function _cv_choose_grid(cf::AbstractVector, Nquad::Union{Nothing,Int}, grid::Union{Nothing,CompVoltGrid})
     if grid !== nothing
         length(cf) - 1 <= grid.N || error("grid.N must be at least length(cf)-1.")
@@ -396,66 +518,343 @@ end
 # Nonlinear Volterra action
 # ----------------------------
 
+function _cv_nonlinear_values(
+    K,
+    C::AbstractMatrix,
+    g::CompVoltGrid,
+    include_u_factor::Bool,
+    mode::Symbol,
+    level::Symbol,
+)
+    M = g.N
+    Uvals = _cv_restricted_values(C, M)
+    _cv_check_finite(Uvals, "two-dimensional restricted value matrix", M, mode, level)
+
+    # Sample an entry that is also part of a nondegenerate integration row.
+    sample_u = Uvals[1, end]
+    sample = K(g.x[end], g.x[1], sample_u)
+    _cv_check_finite(sample, "kernel function value", M, mode, level)
+    if include_u_factor
+        sample *= sample_u
+        _cv_check_finite(sample, "kernel integrand value", M, mode, level)
+    end
+    Tv = typeof(sample * g.w[1] * g.scale[end])
+    Fval = zeros(Tv, M + 1)
+
+    @inbounds for j in 2:(M + 1)
+        xj = g.x[j]
+        sc = g.scale[j]
+        sh = g.shift[j]
+        s = zero(Tv)
+        @simd for i in 1:(M + 1)
+            yij = sc * g.x[i] + sh
+            uij = Uvals[i, j]
+            val = K(xj, yij, uij)
+            _cv_check_finite(val, "kernel function value", M, mode, level)
+            if include_u_factor
+                val *= uij
+                _cv_check_finite(val, "kernel integrand value", M, mode, level)
+            end
+            s += g.w[i] * val
+        end
+        _cv_check_finite(s, "Clenshaw--Curtis row sum", M, mode, level)
+        Fval[j] = sc * s
+        _cv_check_finite(Fval[j], "Clenshaw--Curtis integral value", M, mode, level)
+    end
+    _cv_check_finite(Fval, "Clenshaw--Curtis integral values", M, mode, level)
+    return Fval
+end
+
+function _cv_output_coefficients(
+    Fval::AbstractVector,
+    M::Int,
+    mode::Symbol,
+    level::Symbol,
+)
+    cF = vals2cheb(Fval)
+    _cv_signflip_back!(cF)
+    _cv_check_finite(cF, "output Chebyshev coefficients after DCT", M, mode, level)
+    return cF
+end
+
+function _cv_refinement_indicators(
+    vM::AbstractVector,
+    v2M::AbstractVector,
+    c2M::AbstractVector,
+    M::Int,
+)
+    length(vM) == M + 1 || error("The coarse value vector has incompatible length.")
+    length(v2M) == 2M + 1 || error("The fine value vector has incompatible length.")
+    length(c2M) == 2M + 1 || error("The fine coefficient vector has incompatible length.")
+
+    eta_numerator = abs(vM[1] - v2M[1])
+    @inbounds for j in 2:(M + 1)
+        # Coarse index j corresponds to fine index 2j-1.
+        eta_numerator = max(eta_numerator, abs(vM[j] - v2M[2j - 1]))
+    end
+    vscale = maximum(abs, v2M)
+    eta = eta_numerator / max(one(vscale), vscale)
+
+    # Mathematical modes M+1,...,2M are Julia indices M+2,...,2M+1.
+    theta_numerator = maximum(abs, @view c2M[(M + 2):(2M + 1)])
+    cscale = maximum(abs, c2M)
+    theta = theta_numerator / max(one(cscale), cscale)
+    _cv_check_finite(eta, "eta refinement indicator", 2M, :adaptive, :fine)
+    _cv_check_finite(theta, "theta refinement indicator", 2M, :adaptive, :fine)
+    return eta, theta
+end
+
+function _cv_result(
+    cF::AbstractVector,
+    cu::AbstractVector,
+    truncate_output::Bool,
+    return_info::Bool,
+    M::Int,
+    eta,
+    theta,
+    refinements::Int,
+    converged::Bool,
+)
+    coefficients = truncate_output ? cF[1:length(cu)] : cF
+    return return_info ? (
+        coefficients=coefficients,
+        M=M,
+        eta=eta,
+        theta=theta,
+        refinements=refinements,
+        converged=converged,
+    ) : coefficients
+end
+
+function _cv_nonconvergence(
+    cF::AbstractVector,
+    cu::AbstractVector,
+    truncate_output::Bool,
+    return_info::Bool,
+    M::Int,
+    eta,
+    theta,
+    refinements::Int,
+    reason::AbstractString,
+)
+    if return_info
+        return _cv_result(
+            cF, cu, truncate_output, true, M, eta, theta, refinements, false,
+        )
+    end
+    error(
+        "Adaptive compVolt_nonlinear_fast did not converge ($reason): " *
+        "final M=$M, eta=$(eta), theta=$(theta), refinements=$refinements.",
+    )
+end
+
+"""
+    compVolt_nonlinear_fast(K, cu; M=nothing, adaptive=..., M0=nothing,
+                            tol=nothing, Mmax=nothing, max_refinements=8,
+                            return_info=false, truncate_output=false,
+                            include_u_factor=false, Nquad=nothing, grid=nothing)
+
+Evaluate `integral(K(x, y, u(y)), y=-1..x)` from the Chebyshev coefficients
+`cu` of `u`. If the input length is `L`, its represented polynomial degree is
+`n = L - 1`.
+
+The default call `compVolt_nonlinear_fast(K, cu)` is adaptive because none of
+`M`, `Nquad`, or `grid` is supplied. `M` always means Chebyshev--Lobatto grid
+degree, not point count: each direction has `M + 1` points. Adaptive refinement
+doubles the degree `M -> 2M`, hence changes the point count from `M + 1` to
+`2M + 1`. The grids are nested, and Julia indices `1:2:end` of the fine grid
+are the coarse-grid nodes. The initial degree is `max(n, M0, 1)`, with omitted
+`M0` treated as `n`.
+
+Supplying `M` selects a fixed grid and requires `M >= max(n, 1)`. The legacy
+`Nquad` and `grid` keywords remain backward-compatible fixed-grid interfaces.
+`adaptive=false` without one of those keywords uses `max(n, M0, 1)` as a
+fixed degree.
+
+Adaptive mode compares the normalized nested-node value change `eta` and the
+normalized newly resolved fine-grid modes `theta` with `tol`. Mathematical
+modes `M+1:2M` used by `theta` are Julia coefficient indices
+`M+2:2M+1`. The default tolerance is `100eps(T)`, where `T` is the real
+floating-point type associated with `cu`, and an accepted result is always the
+fine `2M` level.
+
+With `truncate_output=false` (the default), return all coefficients on the
+accepted or fixed grid. Consequently, the default adaptive result can be
+longer than `cu`. With `truncate_output=true`, truncate the result to
+`length(cu)` for external nonlinear iterations that require fixed vector
+sizes. This is compatibility truncation, not tolerance-based chopping.
+Nonlinear composition can create valid modes above degree `n`, which is why
+automatic truncation is not the default.
+
+`max_refinements` is the maximum number of degree doublings. Each doubling
+increases the two-dimensional point-value matrix size by approximately four,
+so large computations should set `Mmax` explicitly. If either limit is reached
+before both indicators satisfy `tol`, the default behavior is to throw an
+error. With `return_info=true`, return the finest completed level with
+`converged=false` instead.
+
+With `return_info=true`, return a named tuple with these stable fields:
+
+- `coefficients`: full or compatibility-truncated output coefficients;
+- `M`: accepted degree, or the finest completed degree on failure;
+- `eta`: normalized nested-node value change (`nothing` in fixed mode);
+- `theta`: normalized new-mode magnitude (`nothing` in fixed mode);
+- `refinements`: number of completed degree doublings;
+- `converged`: whether the adaptive tolerance was satisfied (fixed mode is
+  reported as `true`).
+
+Non-finite restricted values, kernel values, quadrature results, coefficients,
+or refinement indicators stop immediately with an error identifying the stage,
+degree, and fixed/adaptive level. The FFTW DCT-I backend currently supports
+Float32 and Float64 coefficient arithmetic; BigFloat input raises an explicit
+unsupported-backend error.
+"""
 function compVolt_nonlinear_fast(
     K,
     cu::AbstractVector;
     Nquad::Union{Nothing,Int}=nothing,
     grid::Union{Nothing,CompVoltGrid}=nothing,
+    M::Union{Nothing,Int}=nothing,
+    adaptive::Bool=isnothing(M) && isnothing(Nquad) && isnothing(grid),
+    M0::Union{Nothing,Int}=nothing,
+    tol::Union{Nothing,Real}=nothing,
+    Mmax::Union{Nothing,Int}=nothing,
+    max_refinements::Int=8,
+    return_info::Bool=false,
     truncate_output::Bool=false,
     include_u_factor::Bool=false,
 )
-    isempty(cu) && return similar(cu, 0)
-
-    g = _cv_choose_grid(cu, Nquad, grid)
-    N = g.N
-
-    cpad = zeros(eltype(cu), N + 1)
-    _cv_signpad!(cpad, cu)
-    Uvals = _cv_restricted_vals_from_pad(cpad)
-
-    # Use x = 1, η = -1 as a safe type sample.
-    sample_x = g.x[end]
-    sample_y = g.x[1]
-    sample_u = Uvals[1, end]
-    sample = K(sample_x, sample_y, sample_u)
-    if include_u_factor
-        sample *= sample_u
+    if isempty(cu)
+        cempty = similar(cu, 0)
+        return return_info ? (
+            coefficients=cempty,
+            M=0,
+            eta=nothing,
+            theta=nothing,
+            refinements=0,
+            converged=true,
+        ) : cempty
     end
 
-    T = typeof(sample * g.w[1] * g.scale[end])
-    Fval = zeros(T, N + 1)
+    max_refinements >= 0 || throw(ArgumentError("max_refinements must be nonnegative."))
+    M0 === nothing || M0 >= 0 || throw(ArgumentError("M0 must be nonnegative."))
+    Mmax === nothing || Mmax >= 1 || throw(ArgumentError("Mmax must be at least 1."))
 
-    @inbounds for j in 1:(N + 1)
-        # x[1] = -1, so the Volterra interval has zero length.
-        if j == 1
-            Fval[j] = zero(T)
-            continue
-        end
+    T = _cv_coefficient_float_type(cu)
+    tol_value = tol === nothing ? T(100) * eps(T) : T(tol)
+    (isfinite(tol_value) && tol_value >= zero(T)) || throw(ArgumentError(
+        "tol must be finite and nonnegative.",
+    ))
 
-        xj = g.x[j]
-        sc = g.scale[j]
-        sh = g.shift[j]
-
-        s = zero(T)
-        @simd for i in 1:(N + 1)
-            yij = sc * g.x[i] + sh
-            uij = Uvals[i, j]
-            val = K(xj, yij, uij)
-            if include_u_factor
-                val *= uij
-            end
-            s += g.w[i] * val
-        end
-        Fval[j] = sc * s
+    n = length(cu) - 1
+    if M !== nothing && (Nquad !== nothing || grid !== nothing)
+        throw(ArgumentError("M cannot be combined with the legacy Nquad or grid keyword."))
+    end
+    if adaptive && (M !== nothing || Nquad !== nothing || grid !== nothing)
+        throw(ArgumentError("A fixed M, Nquad, or grid cannot be combined with adaptive=true."))
     end
 
-    cF = vals2cheb(Fval)
-    _cv_signflip_back!(cF)
+    # This is the only construction of the bivariate restriction coefficients.
+    C = _cv_restriction_coefficients(cu, T)
 
-    return truncate_output ? cF[1:length(cu)] : cF
+    if M !== nothing
+        M >= max(n, 1) || throw(ArgumentError(
+            "M must be at least max(length(cu)-1, 1) = $(max(n, 1)); got M=$M.",
+        ))
+        g = _cv_exact_grid(M, T)
+        Fval = _cv_nonlinear_values(K, C, g, include_u_factor, :fixed, :fixed)
+        cF = _cv_output_coefficients(Fval, M, :fixed, :fixed)
+        return _cv_result(cF, cu, truncate_output, return_info, M, nothing, nothing, 0, true)
+    elseif Nquad !== nothing || grid !== nothing
+        # Preserve the old fixed-grid selection, including its even-degree
+        # padding and the ability to pass precomputed nodes and weights.
+        g = _cv_choose_grid(cu, Nquad, grid)
+        Fval = _cv_nonlinear_values(K, C, g, include_u_factor, :fixed, :fixed)
+        cF = _cv_output_coefficients(Fval, g.N, :fixed, :fixed)
+        return _cv_result(cF, cu, truncate_output, return_info, g.N, nothing, nothing, 0, true)
+    elseif !adaptive
+        Mfixed = max(n, M0 === nothing ? n : M0, 1)
+        g = _cv_exact_grid(Mfixed, T)
+        Fval = _cv_nonlinear_values(K, C, g, include_u_factor, :fixed, :fixed)
+        cF = _cv_output_coefficients(Fval, Mfixed, :fixed, :fixed)
+        return _cv_result(
+            cF, cu, truncate_output, return_info, Mfixed, nothing, nothing, 0, true,
+        )
+    end
+
+    Mcoarse = max(n, M0 === nothing ? n : M0, 1)
+    if Mmax !== nothing && Mcoarse > Mmax
+        throw(ArgumentError("Mmax=$Mmax is smaller than the initial adaptive degree M=$Mcoarse."))
+    end
+
+    coarse_grid = _cv_exact_grid(Mcoarse, T)
+    coarse_values = _cv_nonlinear_values(
+        K, C, coarse_grid, include_u_factor, :adaptive, :coarse,
+    )
+    coarse_coefficients = nothing
+    eta = nothing
+    theta = nothing
+    refinements = 0
+
+    while true
+        if refinements >= max_refinements
+            cF = coarse_coefficients === nothing ?
+                _cv_output_coefficients(coarse_values, Mcoarse, :adaptive, :coarse) :
+                coarse_coefficients
+            return _cv_nonconvergence(
+                cF, cu, truncate_output, return_info, Mcoarse, eta, theta,
+                refinements, "max_refinements=$max_refinements reached",
+            )
+        end
+        Mcoarse <= typemax(Int) ÷ 2 || error("Chebyshev grid degree overflow during refinement.")
+        Mfine = 2 * Mcoarse
+        if Mmax !== nothing && Mfine > Mmax
+            cF = coarse_coefficients === nothing ?
+                _cv_output_coefficients(coarse_values, Mcoarse, :adaptive, :coarse) :
+                coarse_coefficients
+            return _cv_nonconvergence(
+                cF, cu, truncate_output, return_info, Mcoarse, eta, theta,
+                refinements, "next degree $Mfine exceeds Mmax=$Mmax",
+            )
+        end
+
+        fine_grid = _cv_exact_grid(Mfine, T; coarse=coarse_grid)
+        fine_values = _cv_nonlinear_values(
+            K, C, fine_grid, include_u_factor, :adaptive, :fine,
+        )
+        fine_coefficients = _cv_output_coefficients(
+            fine_values, Mfine, :adaptive, :fine,
+        )
+        refinements += 1
+        eta, theta = _cv_refinement_indicators(
+            coarse_values, fine_values, fine_coefficients, Mcoarse,
+        )
+
+        if max(eta, theta) <= tol_value
+            return _cv_result(
+                fine_coefficients, cu, truncate_output, return_info, Mfine,
+                eta, theta, refinements, true,
+            )
+        end
+
+        # Reuse the completed fine level as the next coarse level. In
+        # particular, neither its integral values nor its coefficients are
+        # recomputed on the following iteration.
+        Mcoarse = Mfine
+        coarse_grid = fine_grid
+        coarse_values = fine_values
+        coarse_coefficients = fine_coefficients
+    end
 end
 
-# Backward-compatible alias with the name used in previous discussion.
+"""
+    compVolt_nonlinear(args...; kwargs...)
+
+Public backward-compatible alias for [`compVolt_nonlinear_fast`](@ref). With no
+fixed-grid keyword it therefore uses adaptive refinement, and its full default
+output length is determined by the accepted grid. All keywords and return
+semantics are identical to `compVolt_nonlinear_fast`.
+"""
 function compVolt_nonlinear(args...; kwargs...)
     return compVolt_nonlinear_fast(args...; kwargs...)
 end

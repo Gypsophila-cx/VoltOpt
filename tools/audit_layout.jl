@@ -117,7 +117,7 @@ function main()
         "examples/ex5_psespectra",
         "test/smooth_bench",
         "test/weaksingular_bench",
-        "test/nonlinear_bench",
+        "test/compvolt_adaptive",
     ]
 
     layout_dirs = [
@@ -134,8 +134,9 @@ function main()
         "test/smooth_bench/legacy",
         "test/weaksingular_bench/data",
         "test/weaksingular_bench/figures",
-        "test/nonlinear_bench/data",
-        "test/nonlinear_bench/figures",
+        "test/compvolt_adaptive/data",
+        "test/compvolt_adaptive/figures",
+        "test/compvolt_adaptive/report",
     ]
 
     key_scripts = [
@@ -148,7 +149,8 @@ function main()
         "examples/ex5_psespectra/ex5_volterra_schur_besselj1.jl",
         "examples/ex5_psespectra/ex5_plot.m",
         "test/smooth_bench/plot_end2end_smooth_bench.m",
-        "test/nonlinear_bench/plot_nonlinear_bench.m",
+        "test/compvolt_adaptive/plot_nonlinear_bench.m",
+        "test/compvolt_adaptive/plot_adaptive_oscillation.m",
     ]
 
     check_exists!(state, key_dirs, "key directories")
