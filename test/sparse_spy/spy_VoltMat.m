@@ -1,7 +1,7 @@
 %% spy_VoltMat.m
 %
-% Read data/spy_VoltMat.mat and draw colored spy plots for Chebyshev,
-% Legendre, and Jacobi Volterra coefficient matrices.
+% Read data/spy_VoltMat.mat and draw colored and black-and-white spy plots
+% for Chebyshev, Legendre, and Jacobi Volterra coefficient matrices.
 %
 % Colors represent matrix magnitudes after adding machine-epsilon perturbations
 % to the same top-dense/banded plotting structure used by the legacy Julia plot.
@@ -94,6 +94,26 @@ exportgraphics(figAll, fullfile(figDir, 'spy_VoltMat_all.pdf'), ...
 exportgraphics(figAll, fullfile(figDir, 'spy_VoltMat_all.png'), ...
                'Resolution', 300);
 
+structurePlots = { ...
+    S.A_cheb, 'Chebyshev basis', 'spy_VoltMat_Chebyshev_structure', true,  2345; ...
+    S.A_leg,  'Legendre basis',  'spy_VoltMat_Legendre_structure',  false, 3456; ...
+    S.A_jac,  'Jacobi basis',    'spy_VoltMat_Jacobi_structure',    true,  1234};
+
+structureNPlot = min([nPlot; cellfun(@(A) min(size(A)), ...
+                                     structurePlots(:, 1))]);
+for k = 1:size(structurePlots, 1)
+    outputStem = structurePlots{k, 3};
+    plot_one_structure_spy( ...
+        structurePlots{k, 1}, ...
+        structureNPlot, ...
+        structurePlots{k, 2}, ...
+        fullfile(figDir, [outputStem, '.pdf']), ...
+        fullfile(figDir, [outputStem, '.png']), ...
+        markerSize, ...
+        structurePlots{k, 4}, ...
+        structurePlots{k, 5});
+end
+
 fprintf('Figures saved to:\n  %s\n', figDir);
 
 %% Local helper functions
@@ -116,6 +136,48 @@ function plot_one_spy(A, nPlot, titleText, outPdf, outPng, markerSize, addTopDen
     ax = axes(fig);
 
     draw_colored_spy(ax, A, nPlot, titleText, markerSize, addTopDenseRows, seed);
+
+    exportgraphics(fig, outPdf, 'ContentType', 'vector');
+    exportgraphics(fig, outPng, 'Resolution', 300);
+
+    fprintf('Saved: %s\n', outPdf);
+    fprintf('Saved: %s\n', outPng);
+end
+
+function plot_one_structure_spy(A, nPlot, titleText, outPdf, outPng, markerSize, addTopDenseRows, seed)
+    fig = figure('Color', 'w', 'Position', [100, 100, 620, 560]);
+    ax = axes(fig);
+
+    A = A(1:nPlot, 1:nPlot);
+    [bandwidth, ~] = detect_bandwidth(A, addTopDenseRows);
+    perturbation = add_machine_perturbation(A, bandwidth, addTopDenseRows, seed);
+    [row, col] = find(abs(sparse(A)) + perturbation);
+    if isempty(row)
+        error('The plotted matrix block for %s has no nonzero entries.', titleText);
+    end
+
+    scatter(ax, col, row, markerSize, [0, 0, 0], 's', 'filled', ...
+            'MarkerEdgeColor', 'none');
+
+    xlabel(ax, 'column index', 'Interpreter', 'latex');
+    ylabel(ax, 'row index', 'Interpreter', 'latex');
+    title(ax, titleText, 'Interpreter', 'latex');
+
+    xlim(ax, [0.5, nPlot + 0.5]);
+    ylim(ax, [0.5, nPlot + 0.5]);
+    axis(ax, 'image');
+
+    set(ax, ...
+        'Color', 'w', ...
+        'XColor', 'k', ...
+        'YColor', 'k', ...
+        'YDir', 'reverse', ...
+        'Box', 'on', ...
+        'Layer', 'top', ...
+        'FontName', 'Times New Roman', ...
+        'FontSize', 13, ...
+        'XGrid', 'off', ...
+        'YGrid', 'off');
 
     exportgraphics(fig, outPdf, 'ContentType', 'vector');
     exportgraphics(fig, outPng, 'Resolution', 300);

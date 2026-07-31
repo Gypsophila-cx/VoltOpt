@@ -125,7 +125,8 @@ function plot_error_curve(T, outPdf, outPng)
     y = y(idx);
 
     fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
-    hold on; box on; grid on;
+    hold on; box on; 
+    % grid on;
 
     plot(x, y);
 
@@ -137,10 +138,10 @@ function plot_error_curve(T, outPdf, outPng)
     ax.FontName = 'Times New Roman';
     ax.XScale = 'linear';
     ax.YScale = 'linear';
-    ax.XGrid = 'on';
-    ax.YGrid = 'on';
-    ax.YMinorGrid = 'on';
-    ax.MinorGridLineStyle = ':';
+    % ax.XGrid = 'on';
+    % ax.YGrid = 'on';
+    % ax.YMinorGrid = 'on';
+    % ax.MinorGridLineStyle = ':';
 
     ylim([0, 3e-16]);
 
@@ -181,7 +182,8 @@ function plot_timing_curves(T, outPdf, outPng)
     labelClenshawN3_fontSize = 12;
 
     fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
-    hold on; box on; grid on;
+    hold on; box on; 
+    % grid on;
 
     plotted = 0;
     dataByMethod = struct();
@@ -233,10 +235,10 @@ function plot_timing_curves(T, outPdf, outPng)
     ax.FontName = 'Times New Roman';
     ax.XScale = 'log';
     ax.YScale = 'log';
-    ax.XGrid = 'on';
-    ax.YGrid = 'on';
-    ax.YMinorGrid = 'on';
-    ax.MinorGridLineStyle = ':';
+    % ax.XGrid = 'on';
+    % ax.YGrid = 'on';
+    % ax.YMinorGrid = 'on';
+    % ax.MinorGridLineStyle = ':';
 
     exportgraphics(fig, outPdf, 'ContentType', 'vector');
     exportgraphics(fig, outPng, 'Resolution', 300);

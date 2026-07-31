@@ -1,0 +1,2 @@
+T,N,y0_real,y0_imag,dy0_real,dy0_imag,equation_residual,relative_residual,initial_value_error,initial_derivative_error,coefficient_tail,cauchy_error,Mplot,preparation_time,validation_time,status
+1000,2048,1,1,0.90000000000000002,-0.91000000000000003,1.250730188480356e-10,2.2790918972939962e-12,1.6910413304902302e-15,3.8154438834629626e-13,0,2.3053692650829689e-11,100001,1.7291191000000001,0.12161350000000001,passed
