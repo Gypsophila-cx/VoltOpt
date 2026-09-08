@@ -294,6 +294,7 @@ function build_voltmat_system(
         N = N,
         diagnostics = false,
         output_format = :packed_lower_hessenberg,
+        H_recurrence_mode = :block_i,
         return_info = true,
     )
     VK = operator_to_sparse(Vraw, N + 1)

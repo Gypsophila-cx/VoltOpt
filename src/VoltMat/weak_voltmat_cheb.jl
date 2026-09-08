@@ -7,16 +7,18 @@ export phi_beta, invphi_beta
 export mul_transpose!
 export validate_weak_voltmat_columns
 
-# Final engineering implementation: block-i precombined assembly plus hybrid
-# integer-eta Chebyshev multipliers.
+# Current weak-singular implementation: contract the kernel's second
+# Chebyshev index first, then stream the four-point moment recurrence in two
+# block-i buffers. Hybrid integer-eta Chebyshev multipliers are fused where
+# possible.
 using FFTW
 using FastGaussQuadrature
 using LinearAlgebra
 using Random
 using SpecialFunctions: loggamma
 using Base.Threads
-# v13/v14 keep the block-i recurrence path that advances all precombined
-# kernel-z moments together in two (I+1) x (N+1) buffers.
+# The block-i recurrence advances all precombined kernel-z moments together in
+# two (I+1) x (N+1) buffers; no k>0 H[j,k,l] tensor is formed.
 
 const _DEFAULT_INTERP_TOL = eps()
 
@@ -178,7 +180,11 @@ function _residual_factor_general(q::AbstractVector, mu_sing::Float64, sigma::Fl
 
     R = similar(q, Float64)
     a_left = -mu_sing
-    scale = 2.0^(sigma - mu_sing) / beta
+    # q is the [-1,1] image of s=((1+t)/2)^beta.  The transformed physical
+    # weight contributes 2^(-mu)/beta; sigma is already carried by s^gamma.
+    # Including 2^sigma here would make the direct initializer inconsistent
+    # with both the DE initializer and the normalized JFP basis.
+    scale = 2.0^(-mu_sing) / beta
 
     @inbounds for n in eachindex(q)
         qv = q[n]
@@ -600,7 +606,10 @@ end
     build_H_for_one_j_from_initial_row(Mj0, N)
 
 Given `H_{j,0,k}`, `k=0,...,N`, build the triangular table
-`H[r+1,k+1] = H_{j,r,k}` by the six-term recurrence.
+`H[r+1,k+1] = H_{j,r,k}` by the legacy six-term recurrence.
+
+This is retained only as a small-N/reference compatibility implementation;
+the production `:block_i` path uses the contracted four-point recurrence.
 """
 function build_H_for_one_j_from_initial_row(Mj0::AbstractVector, N::Int)
     length(Mj0) >= N + 1 || throw(ArgumentError("initial row is too short"))
@@ -661,7 +670,7 @@ end
 """
     build_H_for_one_j_from_initial_row!(H, Mj0, N)
 
-In-place version of the six-term recurrence.  It overwrites the triangular
+In-place version of the legacy six-term recurrence. It overwrites the triangular
 entries `0 <= r <= k <= N` of `H` and intentionally leaves invalid entries
 untouched; all downstream kernels only read the triangular region.
 """
@@ -1250,6 +1259,16 @@ function _precombined_row_scale(N::Int, sigma::Real)
     factor = 2.0^(-Float64(sigma))
     row_scale = fill(0.5 * factor, N + 1)
     row_scale[1] = 0.25 * factor
+    return row_scale
+end
+
+# Row normalization for the current moment convention. For l>=1 the paper's
+# A-entry formula has the Chebyshev factor (2-delta_{r0})/2. The additional
+# 2^(-sigma) preserves the existing weighted-basis normalization.
+function _four_point_row_scale(N::Int, sigma::Real)
+    factor = 2.0^(-Float64(sigma))
+    row_scale = fill(factor, N + 1)
+    row_scale[1] = 0.5 * factor
     return row_scale
 end
 
@@ -1844,7 +1863,7 @@ end
 """
     assemble_inner_matrix_precombined(C, M0, N, sigma; threaded=false)
 
-Optimized v11 precombined-j inner assembly.  It preserves the v10 algorithm
+Legacy scalar-i precombined-j inner assembly. It forms
 `Mcomb = C*M0`, reuses one triangular `H` buffer for all kernel-z modes, and
 uses split Hankel/Toeplitz loops to avoid `abs` and most per-entry branches.
 """
@@ -1917,9 +1936,10 @@ end
 """
     assemble_matrix_precombined_integer_eta(C, M0, N, sigma, g; ...)
 
-Scalar-i fused assembly for an integer Chebyshev multiplier
+Legacy scalar-i fused assembly for an integer Chebyshev multiplier
 `g(z)=sum_q g[q+1]T_q(z)`.  This is the compatibility path used when the
-caller explicitly requests `H_recurrence_mode=:scalar_i`.
+caller explicitly requests `H_recurrence_mode=:legacy_six_term` (or its
+backward-compatible `:scalar_i` alias).
 """
 function assemble_matrix_precombined_integer_eta(C::AbstractMatrix, M0::AbstractMatrix,
                                                  N::Int, sigma::Real,
@@ -1959,37 +1979,37 @@ function assemble_matrix_precombined_integer_eta(C::AbstractMatrix, M0::Abstract
 end
 
 function _blocki_scatter_eta1_layer!(V::AbstractMatrix, Hrow::AbstractMatrix,
-                                     row_scale::AbstractVector, r::Int,
+                                     row_scale::AbstractVector, k::Int,
                                      I::Int, N::Int)
-    @inbounds for k in r:N
-        col = k + 1
+    @inbounds for ell in k:N
+        col = ell + 1
 
+        # The l=0 column is A[r,0] = Lambda[r,0,0], without the l>=1
+        # Chebyshev row factor. Compensate the r=0 half normalization here.
+        if ell == 0
+            for i in 0:min(I, N)
+                val = (i == 0 ? 2.0 : 1.0) * Hrow[i + 1, 1]
+                _scatter_eta1_contribution!(V, row_scale, i, 1, val, N)
+            end
+            continue
+        end
+
+        moment_scale = Float64(ell) / Float64(ell + k)
         for i in 0:I
-            val = Hrow[i + 1, col]
+            val = moment_scale * Hrow[i + 1, col]
 
-            if r >= i
-                _scatter_eta1_contribution!(V, row_scale, r - i, col, val, N)
+            # First A-entry term: k = abs(i-r).
+            rowp = i + k
+            if rowp <= N
+                _scatter_eta1_contribution!(V, row_scale, rowp, col, val, N)
+            end
+            if k > 0 && i >= k && i - k <= N
+                _scatter_eta1_contribution!(V, row_scale, i - k, col, val, N)
             end
 
-            ellp = i + r
-            if ellp <= N
-                _scatter_eta1_contribution!(V, row_scale, ellp, col, val, N)
-            end
-
-            if r > 0 && i >= r
-                ellm = i - r
-                if ellm <= N
-                    _scatter_eta1_contribution!(V, row_scale, ellm, col, val, N)
-                end
-            end
-
-            if r == 0
-                if i == 0
-                    _scatter_eta1_contribution!(V, row_scale, 0, col, val, N)
-                end
-                if i <= N
-                    _scatter_eta1_contribution!(V, row_scale, i, col, val, N)
-                end
+            # Second A-entry term: k = i+r.
+            if k >= i
+                _scatter_eta1_contribution!(V, row_scale, k - i, col, val, N)
             end
         end
     end
@@ -2006,40 +2026,35 @@ end
 
 function _blocki_scatter_eta1_layer!(V::PackedLowerHessenberg{Float64},
                                      Hrow::AbstractMatrix, row_scale::AbstractVector,
-                                     r::Int, I::Int, N::Int)
+                                     k::Int, I::Int, N::Int)
     vals = V.values
     ptr = V.colptr
 
-    @inbounds for k in r:N
-        col = k + 1
+    @inbounds for ell in k:N
+        col = ell + 1
         base = ptr[col]
 
+        if ell == 0
+            for i in 0:min(I, N)
+                val = (i == 0 ? 2.0 : 1.0) * Hrow[i + 1, 1]
+                _packed_blocki_eta1_add!(vals, base, row_scale, i, val, N)
+            end
+            continue
+        end
+
+        moment_scale = Float64(ell) / Float64(ell + k)
         for i in 0:I
-            val = Hrow[i + 1, col]
+            val = moment_scale * Hrow[i + 1, col]
 
-            if r >= i
-                _packed_blocki_eta1_add!(vals, base, row_scale, r - i, val, N)
+            rowp = i + k
+            if rowp <= N
+                _packed_blocki_eta1_add!(vals, base, row_scale, rowp, val, N)
             end
-
-            ellp = i + r
-            if ellp <= N
-                _packed_blocki_eta1_add!(vals, base, row_scale, ellp, val, N)
+            if k > 0 && i >= k && i - k <= N
+                _packed_blocki_eta1_add!(vals, base, row_scale, i - k, val, N)
             end
-
-            if r > 0 && i >= r
-                ellm = i - r
-                if ellm <= N
-                    _packed_blocki_eta1_add!(vals, base, row_scale, ellm, val, N)
-                end
-            end
-
-            if r == 0
-                if i == 0
-                    _packed_blocki_eta1_add!(vals, base, row_scale, 0, val, N)
-                end
-                if i <= N
-                    _packed_blocki_eta1_add!(vals, base, row_scale, i, val, N)
-                end
+            if k >= i
+                _packed_blocki_eta1_add!(vals, base, row_scale, k - i, val, N)
             end
         end
     end
@@ -2048,37 +2063,32 @@ function _blocki_scatter_eta1_layer!(V::PackedLowerHessenberg{Float64},
 end
 
 function _blocki_scatter_integer_eta_layer!(V, Hrow::AbstractMatrix,
-                                            row_scale::AbstractVector, r::Int,
+                                            row_scale::AbstractVector, k::Int,
                                             I::Int, N::Int, g::AbstractVector)
-    @inbounds for k in r:N
-        col = k + 1
+    @inbounds for ell in k:N
+        col = ell + 1
 
+        if ell == 0
+            for i in 0:min(I, N)
+                val = (i == 0 ? 2.0 : 1.0) * Hrow[i + 1, 1]
+                _scatter_integer_eta_contribution!(V, row_scale, i, 1, val, N, g)
+            end
+            continue
+        end
+
+        moment_scale = Float64(ell) / Float64(ell + k)
         for i in 0:I
-            val = Hrow[i + 1, col]
+            val = moment_scale * Hrow[i + 1, col]
 
-            if r >= i
-                _scatter_integer_eta_contribution!(V, row_scale, r - i, col, val, N, g)
+            rowp = i + k
+            if rowp <= N
+                _scatter_integer_eta_contribution!(V, row_scale, rowp, col, val, N, g)
             end
-
-            ellp = i + r
-            if ellp <= N
-                _scatter_integer_eta_contribution!(V, row_scale, ellp, col, val, N, g)
+            if k > 0 && i >= k && i - k <= N
+                _scatter_integer_eta_contribution!(V, row_scale, i - k, col, val, N, g)
             end
-
-            if r > 0 && i >= r
-                ellm = i - r
-                if ellm <= N
-                    _scatter_integer_eta_contribution!(V, row_scale, ellm, col, val, N, g)
-                end
-            end
-
-            if r == 0
-                if i == 0
-                    _scatter_integer_eta_contribution!(V, row_scale, 0, col, val, N, g)
-                end
-                if i <= N
-                    _scatter_integer_eta_contribution!(V, row_scale, i, col, val, N, g)
-                end
+            if k >= i
+                _scatter_integer_eta_contribution!(V, row_scale, k - i, col, val, N, g)
             end
         end
     end
@@ -2087,37 +2097,32 @@ function _blocki_scatter_integer_eta_layer!(V, Hrow::AbstractMatrix,
 end
 
 function _blocki_scatter_S_layer!(S, Hrow::AbstractMatrix,
-                                  row_scale::AbstractVector, r::Int,
+                                  row_scale::AbstractVector, k::Int,
                                   I::Int, N::Int)
-    @inbounds for k in r:N
-        col = k + 1
+    @inbounds for ell in k:N
+        col = ell + 1
 
+        if ell == 0
+            for i in 0:min(I, N)
+                val = (i == 0 ? 2.0 : 1.0) * Hrow[i + 1, 1]
+                _scatter_S_contribution!(S, row_scale, i, 1, val)
+            end
+            continue
+        end
+
+        moment_scale = Float64(ell) / Float64(ell + k)
         for i in 0:I
-            val = Hrow[i + 1, col]
+            val = moment_scale * Hrow[i + 1, col]
 
-            if r >= i
-                _scatter_S_contribution!(S, row_scale, r - i, col, val)
+            rowp = i + k
+            if rowp <= N
+                _scatter_S_contribution!(S, row_scale, rowp, col, val)
             end
-
-            ellp = i + r
-            if ellp <= N
-                _scatter_S_contribution!(S, row_scale, ellp, col, val)
+            if k > 0 && i >= k && i - k <= N
+                _scatter_S_contribution!(S, row_scale, i - k, col, val)
             end
-
-            if r > 0 && i >= r
-                ellm = i - r
-                if ellm <= N
-                    _scatter_S_contribution!(S, row_scale, ellm, col, val)
-                end
-            end
-
-            if r == 0
-                if i == 0
-                    _scatter_S_contribution!(S, row_scale, 0, col, val)
-                end
-                if i <= N
-                    _scatter_S_contribution!(S, row_scale, i, col, val)
-                end
+            if k >= i
+                _scatter_S_contribution!(S, row_scale, k - i, col, val)
             end
         end
     end
@@ -2126,58 +2131,27 @@ function _blocki_scatter_S_layer!(S, Hrow::AbstractMatrix,
 end
 
 function _blocki_next_layer!(Hnext::AbstractMatrix, Hcur::AbstractMatrix,
-                             r::Int, N::Int, I1::Int)
-    r == N && return Hnext
+                             k::Int, N::Int, I1::Int)
+    k == N && return Hnext
 
-    if r == 0 && N >= 1
-        @inbounds @simd for ii in 1:I1
-            Hnext[ii, 2] = Hcur[ii, 2] + Hcur[ii, 1]
-        end
+    # Boundary Lambda[:,k+1,k] = 0. The ell loop is forward because the new
+    # layer at ell depends on the new layer at ell-1.
+    @inbounds @simd for ii in 1:I1
+        Hnext[ii, k + 1] = 0.0
     end
 
-    kstart = r == 0 ? 1 : r
-
-    @inbounds for k in kstart:(N - 1)
+    @inbounds for ell in (k + 1):N
+        ellf = Float64(ell)
         kf = Float64(k)
-        rf = Float64(r)
-        Wr = r == 0 ? 1.0 : 2.0
-
-        Lkp1 = Wr * ((kf + rf + 1.0) * (kf + rf + 2.0)) /
-               (2.0 * (kf + 1.0) * (2.0 * kf + 1.0))
-        invdiag = 1.0 / Lkp1
-
-        Gkp1 = ((kf - rf + 1.0) * (kf + rf + 1.0)) /
-               ((kf + 1.0) * (2.0 * kf + 1.0))
-        Gk = 2.0 * (2.0 * kf^2 + 2.0 * rf^2 - 1.0) /
-             ((2.0 * kf - 1.0) * (2.0 * kf + 1.0))
-
-        has_gkm1 = k >= 2 && r <= k - 1
-        Gkm1 = has_gkm1 ?
-               ((kf - rf - 1.0) * (kf + rf - 1.0)) /
-               ((kf - 1.0) * (2.0 * kf - 1.0)) : 0.0
-
-        has_lk = r + 1 <= k
-        Lk = has_lk ?
-             Wr * (2.0 * (kf + rf + 1.0) * (kf - rf - 1.0)) /
-             ((2.0 * kf - 1.0) * (2.0 * kf + 1.0)) : 0.0
-
-        has_lkm1 = k >= 2 && r + 1 <= k - 1
-        Lkm1 = has_lkm1 ?
-               Wr * ((kf - rf - 1.0) * (kf - rf - 2.0)) /
-               (2.0 * (kf - 1.0) * (2.0 * kf - 1.0)) : 0.0
+        invden = 1.0 / (ellf + kf)
+        a = (ellf - kf) * invden
+        c = -(ellf - kf - 2.0) * invden
 
         @simd for ii in 1:I1
-            num = Gkp1 * Hcur[ii, k + 2] + Gk * Hcur[ii, k + 1]
-            if has_gkm1
-                num += Gkm1 * Hcur[ii, k]
-            end
-            if has_lk
-                num -= Lk * Hnext[ii, k + 1]
-            end
-            if has_lkm1
-                num -= Lkm1 * Hnext[ii, k]
-            end
-            Hnext[ii, k + 2] = invdiag * num
+            Hnext[ii, ell + 1] =
+                a * Hcur[ii, ell + 1] +
+                Hcur[ii, ell] +
+                c * Hnext[ii, ell]
         end
     end
 
@@ -2187,9 +2161,9 @@ end
 """
     assemble_matrix_precombined_eta1_blocki(C, M0, N, sigma; output_format=:dense)
 
-Experimental v13 fused-eta1 assembly.  It computes all precombined kernel-z
-moments for a fixed recurrence layer `r` in an `(I+1) x (N+1)` block, scatters
-that layer immediately, and then advances to the next layer.
+Current fused-eta1 assembly. It computes all contracted moments for a fixed
+recurrence layer `k` in an `(I+1) x (N+1)` block, scatters that layer
+immediately, and then advances with the four-point recurrence.
 """
 function assemble_matrix_precombined_eta1_blocki(C::AbstractMatrix, M0::AbstractMatrix,
                                                  N::Int, sigma::Real;
@@ -2211,7 +2185,7 @@ function assemble_matrix_precombined_eta1_blocki(C::AbstractMatrix, M0::Abstract
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = _precombine_kernel_moments(C, M0, N, J; mode = precombine_mode)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -2242,7 +2216,7 @@ function assemble_matrix_precombined_eta1_blocki_from_Mcomb(Mcomb::AbstractMatri
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = Mcomb isa Matrix{Float64} ? Mcomb : Array{Float64}(Mcomb)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -2284,7 +2258,7 @@ function assemble_matrix_precombined_integer_eta_blocki(C::AbstractMatrix, M0::A
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = _precombine_kernel_moments(C, M0, N, J; mode = precombine_mode)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -2316,7 +2290,7 @@ function assemble_matrix_precombined_integer_eta_blocki_from_Mcomb(Mcomb::Abstra
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = Mcomb isa Matrix{Float64} ? Mcomb : Array{Float64}(Mcomb)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -2357,7 +2331,7 @@ function assemble_inner_matrix_precombined_blocki(C::AbstractMatrix, M0::Abstrac
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = _precombine_kernel_moments(C, M0, N, J; mode = precombine_mode)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -2388,7 +2362,7 @@ function assemble_inner_matrix_precombined_blocki_from_Mcomb(Mcomb::AbstractMatr
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     end
 
-    row_scale = _precombined_row_scale(N, sigma)
+    row_scale = _four_point_row_scale(N, sigma)
     Hcur = Mcomb isa Matrix{Float64} ? Mcomb : Array{Float64}(Mcomb)
     Hnext = Matrix{Float64}(undef, I1, N + 1)
 
@@ -3055,7 +3029,7 @@ function weak_voltmat_cheb(
     precombine_mode in (:blas, :kahan) ||
         throw(ArgumentError("precombine_mode must be :blas or :kahan"))
     assembly_direct_I_threshold = 96
-    assembly_precombine_J_threshold = 1
+    assembly_precombine_J_threshold = 0
     fft_block_size = nothing
     fuse_integer_eta_multiplier = true
     multiplier_fft_degree_threshold = typemax(Int)
@@ -3166,18 +3140,10 @@ function weak_voltmat_cheb(
                              strategy_effective === :separate_banded_multiplier
     use_optimized_integer_eta = use_fused_eta1 || use_fused_integer_eta || use_hybrid_integer_eta
     use_fused_direct = use_fused_eta1 || use_fused_integer_eta
-    H_recurrence_mode in (:scalar_i, :block_i, :auto) ||
-        throw(ArgumentError("H_recurrence_mode must be :scalar_i, :block_i, or :auto"))
-    H_mode_effective = H_recurrence_mode === :auto ?
-                       ((Ieff >= block_i_I_threshold &&
-                         use_optimized_integer_eta &&
-                         (N >= block_i_N_threshold ||
-                          output_format === :packed_lower_hessenberg ||
-                          multiplier_degree != 1)) ? :block_i : :scalar_i) :
-                       H_recurrence_mode
-    if H_mode_effective === :block_i && !use_optimized_integer_eta
-        throw(ArgumentError("H_recurrence_mode=:block_i requires optimized integer-eta precombined assembly"))
-    end
+    H_recurrence_mode in (:scalar_i, :legacy_six_term, :block_i, :auto) ||
+        throw(ArgumentError("H_recurrence_mode must be :block_i, :auto, :legacy_six_term, or the backward-compatible :scalar_i alias"))
+    H_mode_effective = H_recurrence_mode in (:auto, :block_i) ?
+                       :block_i : :legacy_six_term
     output_format in (:dense, :packed_lower_hessenberg) ||
         throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
     if output_format === :packed_lower_hessenberg && !use_optimized_integer_eta
@@ -3186,7 +3152,7 @@ function weak_voltmat_cheb(
     effective_chunk_size = _effective_thread_chunk_size(N, thread_chunk_size)
     precombine_seconds = 0.0
     Mcomb_pre = nothing
-    if H_mode_effective === :block_i && use_optimized_integer_eta
+    if H_mode_effective === :block_i
         t_pre = time_ns()
         Mcomb_pre = _precombine_kernel_moments(
             C,
@@ -3271,16 +3237,24 @@ function weak_voltmat_cheb(
         Vtmp
     else
         t_asm = time_ns()
-        S = assemble_inner_matrix_fast(
-            C, Minit, N, sigf;
-            fft_block_size = fft_block_size,
-            direct_I_threshold = inner_direct_threshold_eff,
-            precombine_J_threshold = assembly_precombine_J_threshold,
-            threaded = use_threaded,
-            thread_schedule = thread_schedule,
-            thread_chunk_size = effective_chunk_size,
-            precombine_mode = precombine_mode,
-        )
+        S = if H_mode_effective === :block_i
+            assemble_inner_matrix_precombined_blocki_from_Mcomb(
+                Mcomb_pre, N, sigf;
+                output_format = :dense,
+                lower_bw = Ieff,
+            )
+        else
+            assemble_inner_matrix_fast(
+                C, Minit, N, sigf;
+                fft_block_size = fft_block_size,
+                direct_I_threshold = inner_direct_threshold_eff,
+                precombine_J_threshold = assembly_precombine_J_threshold,
+                threaded = use_threaded,
+                thread_schedule = thread_schedule,
+                thread_chunk_size = effective_chunk_size,
+                precombine_mode = precombine_mode,
+            )
+        end
         assembly_seconds = (time_ns() - t_asm) / 1e9
         t_mul = time_ns()
         Vtmp = apply_cheb_multiplier_to_matrix_fast(
@@ -3310,6 +3284,8 @@ function weak_voltmat_cheb(
     elseif use_hybrid_integer_eta
         H_mode_effective === :block_i ? :precombined_blocki_inner_serial :
         (use_threaded ? :precombined_inner_threaded : :precombined_inner_serial)
+    elseif H_mode_effective === :block_i
+        :precombined_blocki_inner_serial
     elseif Ieff <= inner_direct_threshold_eff
         if Jeff >= assembly_precombine_J_threshold
             H_mode_effective === :block_i ? :precombined_blocki_serial :
@@ -3360,6 +3336,8 @@ function weak_voltmat_cheb(
         integer_eta_strategy_effective = strategy_effective,
         output_format = output_format,
         H_recurrence_mode = H_mode_effective,
+        moment_recurrence = H_mode_effective === :block_i ? :four_point : :six_term,
+        contraction_mode = :precombined_j,
         block_i_I_threshold = block_i_I_threshold,
         block_i_N_threshold = block_i_N_threshold,
         stored_entries = stored_entries,

@@ -2,6 +2,7 @@ using Test
 using VoltOpt
 
 include(joinpath(@__DIR__, "compvolt_adaptive", "runtests.jl"))
+include(joinpath(@__DIR__, "weaksingular_current", "runtests.jl"))
 include(joinpath(@__DIR__, "weaksingular_stability", "runtests.jl"))
 
 const PROJECT_ROOT = normpath(joinpath(@__DIR__, ".."))
