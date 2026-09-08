@@ -368,9 +368,9 @@ function label = method_label(method)
     method = char(method);
     switch method
         case 'clenshaw_valuemat'
-            label = 'Clenshaw value matrix';
+            label = 'Clenshaw';
         case 'compVolt'
-            label = 'compVolt';
+            label = 'new';
         otherwise
             label = strrep(method, '_', '\_');
     end

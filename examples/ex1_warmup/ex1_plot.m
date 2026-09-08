@@ -42,8 +42,13 @@ timing_csv = fullfile(data_dir, ...
 
 %% Plot settings
 
+% Set to true to plot only Duffy--Chebyshev.
+% In this mode, no legend is displayed.
+only_duffy_chebyshev = true;
+
 % Set to false to plot only Duffy--Chebyshev and Gutleb--Olver.
 % Set to true to also include the Duffy--Legendre curve.
+% This option is ignored when only_duffy_chebyshev = true.
 include_legendre = false;
 
 all_method_keys = [
@@ -58,7 +63,9 @@ all_method_names = {
     'Gutleb--Olver'
 };
 
-if include_legendre
+if only_duffy_chebyshev
+    active_methods = 1;
+elseif include_legendre
     active_methods = [1, 2, 3];
 else
     active_methods = [1, 3];
@@ -101,9 +108,11 @@ ylabel('error', 'Interpreter', 'latex');
 
 ylim([1e-16, 1]);
 
-legend(method_names, ...
-    'Location', 'northeast', ...
-    'Interpreter', 'latex');
+if ~only_duffy_chebyshev
+    legend(method_names, ...
+        'Location', 'northeast', ...
+        'Interpreter', 'latex');
+end
 
 set(gca, ...
     'FontName', 'Times New Roman', ...
@@ -156,9 +165,11 @@ end
 xlabel('$N$', 'Interpreter', 'latex');
 ylabel('time (sec)', 'Interpreter', 'latex');
 
-legend(method_names, ...
-    'Location', 'northwest', ...
-    'Interpreter', 'latex');
+if ~only_duffy_chebyshev
+    legend(method_names, ...
+        'Location', 'northwest', ...
+        'Interpreter', 'latex');
+end
 
 set(gca, ...
     'FontName', 'Times New Roman', ...

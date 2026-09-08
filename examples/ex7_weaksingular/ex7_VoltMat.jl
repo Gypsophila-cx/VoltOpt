@@ -29,8 +29,11 @@
 #   No exact solution is used. The script reports Cauchy errors by comparing
 #   the N approximation with the Nplus approximation, where
 #   Nplus = max(N+1, round(Int, 1.01*N)). The Cauchy error is the maximum
-#   point-value difference on the shared composite physical grid: at least
-#   10001 uniform x points plus 5001 uniform z=s^(1/6) points mapped to x.
+#   point-value difference on the shared, N-independent composite physical
+#   grid: at least 10001 uniform x points plus 5001 uniform z=s^(1/6) points
+#   mapped to x.  Both solutions are first differenced in their common weighted
+#   Chebyshev basis and the difference is then evaluated by Clenshaw recurrence,
+#   avoiding cancellation between two separately evaluated function values.
 #
 # Output:
 #   examples/ex7_weaksingular/data/ex7_VoltMat_error.csv
@@ -123,11 +126,12 @@ function rhs_x(x::Real)
     return ((1.0 + xf) / 2.0)^(1.0 / 3.0) * rhs_factor_x(xf)
 end
 
-function rhs_basis_factor_x(x::Real, alpha::Float64)
+function rhs_basis_factor_x(x::Real, _alpha::Float64)
     xf = Float64(x)
-    s = (1.0 + xf) / 2.0
-    # At s=0 the quotient rhs_x(x)/s^alpha is defined by its finite limit.
-    return s == 0.0 ? rhs_factor_x(xf) : rhs_x(xf) / s^alpha
+    # Analytically cancel the basis weight instead of multiplying by s^alpha
+    # in rhs_x and dividing it back out.  The latter injects pointwise
+    # roundoff into the high Chebyshev modes of this smooth factor.
+    return rhs_factor_x(xf)
 end
 
 phi_beta_local(x::Real, beta::Float64) =
@@ -167,22 +171,15 @@ function cheb_project_lobatto(f, coeff_degree::Int, sample_degree::Int)
     M = sample_degree
     vals = Vector{Float64}(undef, M + 1)
     @inbounds for j in 0:M
-        z = cos(pi * j / M)
+        z = cospi(j / M)
         vals[j + 1] = f(z)
     end
 
-    c = zeros(Float64, coeff_degree + 1)
-    @inbounds for k in 0:coeff_degree
-        s = 0.0
-        for j in 0:M
-            wj = (j == 0 || j == M) ? 0.5 : 1.0
-            s += wj * vals[j + 1] * cos(pi * k * j / M)
-        end
-        c[k + 1] = 2.0 * s / M
-    end
-    c[1] *= 0.5
-
-    return c
+    # Reuse the project's DCT-I coefficient transform.  The former explicit
+    # oscillatory sums lost several digits once the true high-order
+    # coefficients fell below machine precision, producing a noisy RHS tail.
+    all_coeffs = VoltOpt.Weak_VoltMat_Cheb.cheb_coeffs_lobatto_1d(vals)
+    return all_coeffs[1:(coeff_degree + 1)]
 end
 
 function build_rhs_coefficients(max_degree::Int, alpha::Float64, beta::Float64)
@@ -325,7 +322,8 @@ function solve_degree(
 
     coeffs = nothing
     solve_time = @elapsed begin
-        coeffs = built.A \ built.rhs
+        factor = lu(built.A)
+        coeffs = factor \ built.rhs
     end
 
     linear_residual_inf = norm(built.A * coeffs - built.rhs, Inf)
@@ -414,11 +412,20 @@ end
 
 function grid_cauchy(cN::AbstractVector, c_ref::AbstractVector, grid,
         alpha::Float64, beta::Float64)
+    length(cN) <= length(c_ref) ||
+        throw(DimensionMismatch("reference coefficient vector must not be shorter"))
+
+    # Both approximations use the same normalized weighted-Chebyshev basis.
+    # Form their padded coefficient difference first, then evaluate that small
+    # series once.  This avoids subtracting two O(1), separately rounded
+    # Clenshaw values when the Cauchy error is near machine precision.
+    coefficient_difference = -Float64.(c_ref)
+    @views coefficient_difference[1:length(cN)] .+= cN
+
     err = 0.0
     max_error_x = grid.x[1]
     @inbounds for j in eachindex(grid.x, grid.s)
-        e = abs(eval_jfp_s(cN, grid.s[j], alpha, beta) -
-                eval_jfp_s(c_ref, grid.s[j], alpha, beta))
+        e = abs(eval_jfp_s(coefficient_difference, grid.s[j], alpha, beta))
         if e > err
             err = e
             max_error_x = grid.x[j]

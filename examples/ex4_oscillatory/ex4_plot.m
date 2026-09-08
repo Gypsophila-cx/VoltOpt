@@ -132,7 +132,7 @@ semilogy(TvmErr.depth, TvmErr.max_error, ...
 semilogy(TgoErr.depth, TgoErr.max_error,  ...
     'LineWidth', 1.5);
 
-xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
+xlabel('kernel approximation order $n$', 'Interpreter', 'latex');
 ylabel('error', 'Interpreter', 'latex');
 
 legend( ...
@@ -179,7 +179,7 @@ add_reference_curve(vmDepthTime, vmTime, tailCount, ...
 add_reference_curve(goDepthTime, goTime, tailCount, ...
     @(n) n.^3, '$\mathcal{O}(n^3)$', 0.8, goRefText);
 
-xlabel('kernel expansion depth $n$', 'Interpreter', 'latex');
+xlabel('kernel approximation order $n$', 'Interpreter', 'latex');
 
 if timePart == "build"
     ylabel('construction time (sec)', 'Interpreter', 'latex');

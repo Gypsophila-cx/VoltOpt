@@ -104,7 +104,7 @@ figErr = figure('Color', 'w');
 hold on;
 
 semilogy(TvoltErr.N, TvoltErr.cauchy_error, '-', ...
-    'DisplayName', 'Weak Duffy-CFP');
+    'DisplayName', 'Duffy-CFP');
 
 semilogy(TfracErr.N, TfracErr.cauchy_error, '-', ...
     'DisplayName', 'Müntz-collocation');
@@ -147,7 +147,7 @@ axTime = axes(figTime);
 hold(axTime, 'on');
 
 loglog(axTime, TvoltTime.N, TvoltTime.total_median, '-', ...
-    'DisplayName', 'Weak Duffy-CFP');
+    'DisplayName', 'Duffy-CFP');
 
 loglog(axTime, TfracTime.N, TfracTime.total_median, '-', ...
     'DisplayName', 'Müntz-collocation');
