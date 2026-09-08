@@ -297,6 +297,16 @@ function build_voltmat_system(
         H_recurrence_mode = :block_i,
         return_info = true,
     )
+    _info.H_recurrence_mode === :block_i ||
+        error("Example 7 did not select block-i moment recurrence")
+    _info.moment_recurrence === :four_point ||
+        error("Example 7 did not select the four-point recurrence")
+    _info.contraction_mode === :precombined_j ||
+        error("Example 7 did not select precombined-j contraction")
+    _info.assembly_mode === :precombined_ellmajor_serial ||
+        error("Example 7 did not select ell-major assembly")
+    _info.multiplier_mode === :deferred_eta1_column ||
+        error("Example 7 did not select the deferred eta=1 multiplier")
     VK = operator_to_sparse(Vraw, N + 1)
     # For nonzero sigma, the current core interface returns columns with the
     # unnormalised endpoint factor (1+x)^sigma, while this example and the

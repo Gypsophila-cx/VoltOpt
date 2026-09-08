@@ -297,6 +297,48 @@ end
         @test VoltOpt.packed_to_dense(packedwide) == densewide
     end
 
+    @testset "ell-major eta=1 matches current k-major reference" begin
+        rng = MersenneTwister(0x454c4c4d)
+        max_dense_err = 0.0
+        max_packed_err = 0.0
+        for (I, J, N, sigma) in (
+            (0, 0, 1, 0.0),
+            (2, 3, 7, 0.2),
+            (5, 2, 13, -0.1),
+            (9, 4, 5, 0.35),
+            (15, 7, 24, 0.0),
+        )
+            C = 0.05 .* randn(rng, I + 1, J + 1)
+            C[1, 1] += 1.0
+            M0 = WeakCurrent.initial_moments_fast(0.5, sigma, 0.5, J, N)
+            Mcomb = WeakCurrent._precombine_kernel_moments(C, M0, N, J)
+            lower_bw = I + 1
+
+            dense_ref = WeakCurrent._assemble_matrix_precombined_eta1_kmajor_from_Mcomb(
+                copy(Mcomb), N, sigma;
+                output_format = :dense,
+                lower_bw = lower_bw,
+            )
+            dense_new = WeakCurrent._assemble_eta1_ellmajor_scatter_from_Mcomb(
+                copy(Mcomb), N, sigma;
+                output_format = :dense,
+                lower_bw = lower_bw,
+            )
+            packed_new = WeakCurrent._assemble_eta1_ellmajor_scatter_from_Mcomb(
+                copy(Mcomb), N, sigma;
+                output_format = :packed_lower_hessenberg,
+                lower_bw = lower_bw,
+            )
+            dense_err = maximum(abs, dense_ref .- dense_new)
+            packed_err = maximum(abs, dense_new .- VoltOpt.packed_to_dense(packed_new))
+            max_dense_err = max(max_dense_err, dense_err)
+            max_packed_err = max(max_packed_err, packed_err)
+            @test dense_err <= 5.0e-15
+            @test packed_err == 0.0
+        end
+        @info "weak ell-major eta=1 A/B" max_dense_err max_packed_err
+    end
+
     @testset "direct operator columns" begin
         K(x, y) = 1.0
         N = 20

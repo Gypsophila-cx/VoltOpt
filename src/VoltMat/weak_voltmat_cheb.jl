@@ -355,13 +355,20 @@ function compute_H00k_DE(alpha::Real, mu::Real, beta_map::Real, Kmax::Int;
         b = -1.0 / ((2.0 * nf + 1.0) * (2.0 * nf + 3.0))
         c = nf / (2.0 * nf + 1.0)
 
-        @simd for i in 1:nnode
-            R_np1[i] = ((xnodes[i] - b) * R_n[i] - c * R_nm1[i]) / a
+        if accurate_sum
+            @simd for i in 1:nnode
+                R_np1[i] = ((xnodes[i] - b) * R_n[i] - c * R_nm1[i]) / a
+            end
+            H[n + 3] = pref * _neumaier_dot(weights, R_np1)
+        else
+            s = 0.0
+            @simd for i in 1:nnode
+                rnew = ((xnodes[i] - b) * R_n[i] - c * R_nm1[i]) / a
+                R_np1[i] = rnew
+                s += weights[i] * rnew
+            end
+            H[n + 3] = pref * s
         end
-
-        H[n + 3] = pref * (accurate_sum ?
-                            _neumaier_dot(weights, R_np1) :
-                            dot(weights, R_np1))
         R_nm1, R_n, R_np1 = R_n, R_np1, R_nm1
     end
 
@@ -1331,6 +1338,19 @@ function packed_lower_hessenberg_zeros(::Type{T}, n::Int, lower_bw::Int) where {
     return PackedLowerHessenberg{T}(zeros(T, colptr[end] - 1), colptr, n, lower_bw)
 end
 
+function _packed_lower_hessenberg_uninitialized(::Type{T}, n::Int,
+                                                lower_bw::Int) where {T}
+    n >= 1 || throw(ArgumentError("n must be positive"))
+    lower_bw >= 0 || throw(ArgumentError("lower_bw must be nonnegative"))
+    colptr = Vector{Int}(undef, n + 1)
+    colptr[1] = 1
+    @inbounds for col in 1:n
+        colptr[col + 1] = colptr[col] + min(n, col + lower_bw)
+    end
+    return PackedLowerHessenberg{T}(Vector{T}(undef, colptr[end] - 1),
+                                    colptr, n, lower_bw)
+end
+
 Base.size(A::PackedLowerHessenberg) = (A.n, A.n)
 Base.size(A::PackedLowerHessenberg, d::Int) = d == 1 || d == 2 ? A.n : 1
 Base.length(A::PackedLowerHessenberg) = A.n * A.n
@@ -2158,51 +2178,306 @@ function _blocki_next_layer!(Hnext::AbstractMatrix, Hcur::AbstractMatrix,
     return Hnext
 end
 
+@inline function _eta1_column_entry(Acol::Vector{Float64}, row::Int,
+                                    max_A_row::Int, N::Int)
+    center = row <= max_A_row ? 0.5 * Acol[row + 1] : 0.0
+    if row == 0
+        return center + (max_A_row >= 1 ? 0.25 * Acol[2] : 0.0)
+    elseif row == 1
+        return center + 0.5 * Acol[1] +
+               (max_A_row >= 2 ? 0.25 * Acol[3] : 0.0)
+    else
+        return center + 0.25 * Acol[row] +
+               (row < N && row < max_A_row ? 0.25 * Acol[row + 2] : 0.0)
+    end
+end
+
+function _write_eta1_column!(V::PackedLowerHessenberg{Float64},
+                             Acol::Vector{Float64}, ell::Int,
+                             max_A_row::Int, N::Int)
+    col = ell + 1
+    first = V.colptr[col]
+    len = V.colptr[col + 1] - first
+    vals = V.values
+    @inbounds @simd for row in 0:(len - 1)
+        vals[first + row] = _eta1_column_entry(Acol, row, max_A_row, N)
+    end
+    return V
+end
+
+function _write_eta1_column!(V::Matrix{Float64}, Acol::Vector{Float64},
+                             ell::Int, max_A_row::Int, N::Int)
+    col = ell + 1
+    max_G_row = min(N, max_A_row + 1)
+    @inbounds @simd for row in 0:max_G_row
+        V[row + 1, col] = _eta1_column_entry(Acol, row, max_A_row, N)
+    end
+    return V
+end
+
+function _ellmajor_eta1_output(output_format::Symbol, n::Int, lower_bw::Int)
+    if output_format === :dense
+        return zeros(Float64, n, n)
+    elseif output_format === :packed_lower_hessenberg
+        # Every stored element is assigned exactly once, column by column, by
+        # `_write_eta1_column!`; avoid zeroing the potentially hundreds of MiB
+        # packed value buffer before overwriting it.
+        return _packed_lower_hessenberg_uninitialized(Float64, n, lower_bw)
+    else
+        throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
+    end
+end
+
+function _ellmajor_inverse_integers(N::Int)
+    invint = Vector{Float64}(undef, 2N)
+    @inbounds @simd for d in 1:(2N)
+        invint[d] = 1.0 / Float64(d)
+    end
+    return invint
+end
+
+"""
+    _assemble_eta1_ellmajor_scatter_from_Mcomb(Mcomb, N, sigma; ...)
+
+Column-major four-point assembly for the production eta=1 path. Each completed
+moment column is scattered only into a cache-resident local A column,
+normalized once, multiplied by `(1+z)/2` once, and written sequentially to the
+final output.
+"""
+function _assemble_eta1_ellmajor_scatter_from_Mcomb(
+    Mcomb::AbstractMatrix,
+    N::Int,
+    sigma::Real;
+    output_format::Symbol = :packed_lower_hessenberg,
+    lower_bw::Int = size(Mcomb, 1),
+    use_reciprocal_table::Bool = true,
+)
+    return _assemble_eta1_ellmajor_scatter_core(
+        Mcomb, N, sigma, Val(use_reciprocal_table);
+        output_format = output_format,
+        lower_bw = lower_bw,
+    )
+end
+
+function _assemble_eta1_ellmajor_scatter_core(
+    Mcomb::AbstractMatrix,
+    N::Int,
+    sigma::Real,
+    ::Val{use_reciprocal_table};
+    output_format::Symbol,
+    lower_bw::Int,
+) where {use_reciprocal_table}
+    I = size(Mcomb, 1) - 1
+    I1 = I + 1
+    size(Mcomb, 2) >= N + 1 || throw(ArgumentError("Mcomb has too few columns"))
+
+    V = _ellmajor_eta1_output(output_format, N + 1, lower_bw)
+    base = Mcomb isa Matrix{Float64} ? Mcomb : Array{Float64}(Mcomb)
+    prev = base
+    curr = Matrix{Float64}(undef, I1, N + 1)
+    Acol = Vector{Float64}(undef, N + 1)
+    invint = use_reciprocal_table ? _ellmajor_inverse_integers(N) : Float64[]
+    factor = 2.0^(-Float64(sigma))
+
+    max_A_row = min(I, N)
+    @inbounds @simd for i in 0:max_A_row
+        Acol[i + 1] = factor * Float64(Mcomb[i + 1, 1])
+    end
+    _write_eta1_column!(V, Acol, 0, max_A_row, N)
+    N == 0 && return V
+
+    @inbounds @simd for ii in 1:I1
+        prev[ii, 1] = Float64(Mcomb[ii, 1])
+    end
+
+    @inbounds for ell in 1:N
+        max_A_row = min(N, ell + I)
+        @simd for row in 0:max_A_row
+            Acol[row + 1] = 0.0
+        end
+        @simd for ii in 1:I1
+            curr[ii, 1] = base[ii, ell + 1]
+            prev[ii, ell + 1] = 0.0
+        end
+
+        ellf = Float64(ell)
+        for k in 0:ell
+            invden = use_reciprocal_table ? invint[ell + k] :
+                     1.0 / Float64(ell + k)
+            moment_scale = ellf * invden
+
+            if I <= N && k > I
+                # In the dominant large-k region the negative-difference
+                # branch is impossible and the sum/difference rows are known
+                # directly.  Handle i=0 separately because both terms target
+                # the same A entry, then SIMD the disjoint row pairs.
+                val0 = moment_scale * curr[1, k + 1]
+                Acol[k + 1] += 2.0 * val0
+                if k <= N - I
+                    @simd for i in 1:I
+                        val = moment_scale * curr[i + 1, k + 1]
+                        Acol[k + i + 1] += val
+                        Acol[k - i + 1] += val
+                    end
+                else
+                    imax = N - k
+                    @simd for i in 1:imax
+                        val = moment_scale * curr[i + 1, k + 1]
+                        Acol[k + i + 1] += val
+                        Acol[k - i + 1] += val
+                    end
+                    @simd for i in (imax + 1):I
+                        Acol[k - i + 1] +=
+                            moment_scale * curr[i + 1, k + 1]
+                    end
+                end
+            else
+                for i in 0:I
+                    val = moment_scale * curr[i + 1, k + 1]
+                    rowp = i + k
+                    if rowp <= N
+                        Acol[rowp + 1] += val
+                    end
+                    if k > 0 && i >= k && i - k <= N
+                        Acol[i - k + 1] += val
+                    end
+                    if k >= i
+                        Acol[k - i + 1] += val
+                    end
+                end
+            end
+
+            if k < ell
+                kf = Float64(k)
+                a = (ellf - kf) * invden
+                c = -(ellf - kf - 2.0) * invden
+                @simd for ii in 1:I1
+                    curr[ii, k + 2] =
+                        a * curr[ii, k + 1] +
+                        prev[ii, k + 1] +
+                        c * prev[ii, k + 2]
+                end
+            end
+        end
+
+        Acol[1] *= 0.5 * factor
+        @simd for row in 1:max_A_row
+            Acol[row + 1] *= factor
+        end
+        _write_eta1_column!(V, Acol, ell, max_A_row, N)
+        prev, curr = curr, prev
+    end
+
+    return V
+end
+
+"""
+    _assemble_eta1_ellmajor_gather_from_Mcomb(Mcomb, N, sigma; ...)
+
+Experimental column-major four-point assembly using one direct A-entry gather
+per output row after the complete contracted-moment column has been generated.
+"""
+function _assemble_eta1_ellmajor_gather_from_Mcomb(
+    Mcomb::AbstractMatrix,
+    N::Int,
+    sigma::Real;
+    output_format::Symbol = :packed_lower_hessenberg,
+    lower_bw::Int = size(Mcomb, 1),
+)
+    I = size(Mcomb, 1) - 1
+    I1 = I + 1
+    size(Mcomb, 2) >= N + 1 || throw(ArgumentError("Mcomb has too few columns"))
+
+    V = _ellmajor_eta1_output(output_format, N + 1, lower_bw)
+    prev = Matrix{Float64}(undef, I1, N + 1)
+    curr = Matrix{Float64}(undef, I1, N + 1)
+    Acol = Vector{Float64}(undef, N + 1)
+    invint = _ellmajor_inverse_integers(N)
+    factor = 2.0^(-Float64(sigma))
+
+    max_A_row = min(I, N)
+    @inbounds @simd for i in 0:max_A_row
+        Acol[i + 1] = factor * Float64(Mcomb[i + 1, 1])
+    end
+    _write_eta1_column!(V, Acol, 0, max_A_row, N)
+    N == 0 && return V
+
+    @inbounds @simd for ii in 1:I1
+        prev[ii, 1] = Float64(Mcomb[ii, 1])
+    end
+
+    @inbounds for ell in 1:N
+        @simd for ii in 1:I1
+            curr[ii, 1] = Float64(Mcomb[ii, ell + 1])
+            prev[ii, ell + 1] = 0.0
+        end
+
+        ellf = Float64(ell)
+        for k in 0:(ell - 1)
+            invden = invint[ell + k]
+            kf = Float64(k)
+            a = (ellf - kf) * invden
+            c = -(ellf - kf - 2.0) * invden
+            @simd for ii in 1:I1
+                curr[ii, k + 2] =
+                    a * curr[ii, k + 1] +
+                    prev[ii, k + 1] +
+                    c * prev[ii, k + 2]
+            end
+        end
+
+        max_A_row = min(N, ell + I)
+        for row in 0:max_A_row
+            acc = 0.0
+            for i in 0:I
+                kabs = abs(i - row)
+                if kabs <= ell
+                    acc += ellf * invint[ell + kabs] * curr[i + 1, kabs + 1]
+                end
+                ksum = i + row
+                if ksum <= ell
+                    acc += ellf * invint[ell + ksum] * curr[i + 1, ksum + 1]
+                end
+            end
+            Acol[row + 1] = factor * (row == 0 ? 0.5 : 1.0) * acc
+        end
+
+        _write_eta1_column!(V, Acol, ell, max_A_row, N)
+        prev, curr = curr, prev
+    end
+
+    return V
+end
+
 """
     assemble_matrix_precombined_eta1_blocki(C, M0, N, sigma; output_format=:dense)
 
-Current fused-eta1 assembly. It computes all contracted moments for a fixed
-recurrence layer `k` in an `(I+1) x (N+1)` block, scatters that layer
-immediately, and then advances with the four-point recurrence.
+Current fused-eta1 assembly. It precombines the kernel's j index once, then
+uses the column-major four-point recurrence so that each completed A column is
+assembled locally, multiplied by `(1+z)/2` once, and written sequentially.
 """
 function assemble_matrix_precombined_eta1_blocki(C::AbstractMatrix, M0::AbstractMatrix,
                                                  N::Int, sigma::Real;
                                                  output_format::Symbol = :dense,
                                                  lower_bw::Int = size(C, 1),
                                                  precombine_mode::Symbol = :blas)
-    I = size(C, 1) - 1
     J = size(C, 2) - 1
-    I1 = I + 1
     size(M0, 1) >= J + 1 || throw(ArgumentError("initial moment table has too few rows"))
     size(M0, 2) >= N + 1 || throw(ArgumentError("initial moment table has too few columns"))
-
-    n = N + 1
-    V = if output_format === :dense
-        zeros(Float64, n, n)
-    elseif output_format === :packed_lower_hessenberg
-        packed_lower_hessenberg_zeros(Float64, n, lower_bw)
-    else
-        throw(ArgumentError("output_format must be :dense or :packed_lower_hessenberg"))
-    end
-
-    row_scale = _four_point_row_scale(N, sigma)
-    Hcur = _precombine_kernel_moments(C, M0, N, J; mode = precombine_mode)
-    Hnext = Matrix{Float64}(undef, I1, N + 1)
-
-    for r in 0:N
-        _blocki_scatter_eta1_layer!(V, Hcur, row_scale, r, I, N)
-        r == N && break
-        _blocki_next_layer!(Hnext, Hcur, r, N, I1)
-        Hcur, Hnext = Hnext, Hcur
-    end
-
-    return V
+    Mcomb = _precombine_kernel_moments(C, M0, N, J; mode = precombine_mode)
+    return _assemble_eta1_ellmajor_scatter_from_Mcomb(
+        Mcomb,
+        N,
+        sigma;
+        output_format = output_format,
+        lower_bw = lower_bw,
+    )
 end
 
-function assemble_matrix_precombined_eta1_blocki_from_Mcomb(Mcomb::AbstractMatrix,
-                                                            N::Int, sigma::Real;
-                                                            output_format::Symbol = :dense,
-                                                            lower_bw::Int = size(Mcomb, 1) - 1)
+function _assemble_matrix_precombined_eta1_kmajor_from_Mcomb(Mcomb::AbstractMatrix,
+                                                             N::Int, sigma::Real;
+                                                             output_format::Symbol = :dense,
+                                                             lower_bw::Int = size(Mcomb, 1))
     I = size(Mcomb, 1) - 1
     I1 = I + 1
     size(Mcomb, 2) >= N + 1 || throw(ArgumentError("Mcomb has too few columns"))
@@ -2228,6 +2503,22 @@ function assemble_matrix_precombined_eta1_blocki_from_Mcomb(Mcomb::AbstractMatri
     end
 
     return V
+end
+
+function assemble_matrix_precombined_eta1_blocki_from_Mcomb(
+    Mcomb::AbstractMatrix,
+    N::Int,
+    sigma::Real;
+    output_format::Symbol = :dense,
+    lower_bw::Int = size(Mcomb, 1),
+)
+    return _assemble_eta1_ellmajor_scatter_from_Mcomb(
+        Mcomb,
+        N,
+        sigma;
+        output_format = output_format,
+        lower_bw = lower_bw,
+    )
 end
 
 """
@@ -3279,7 +3570,9 @@ function weak_voltmat_cheb(
     end
     diagnostics_seconds = (time_ns() - t_diag) / 1e9
     assembly_mode = if use_fused_direct
-        H_mode_effective === :block_i ? :precombined_blocki_serial :
+        H_mode_effective === :block_i ?
+        (multiplier_degree == 1 && use_fused_eta1 ?
+         :precombined_ellmajor_serial : :precombined_blocki_serial) :
         (use_threaded ? :precombined_threaded : :precombined_serial)
     elseif use_hybrid_integer_eta
         H_mode_effective === :block_i ? :precombined_blocki_inner_serial :
@@ -3297,7 +3590,7 @@ function weak_voltmat_cheb(
         :blockfft
     end
     multiplier_mode = use_fused_direct ?
-                      (multiplier_degree == 1 ? :fused_eta1 : :fused_integer_eta) :
+                      (multiplier_degree == 1 ? :deferred_eta1_column : :fused_integer_eta) :
                       (use_hybrid_integer_eta ? :separate_banded_multiplier :
                        (_is_oneplus_over2_coeffs(g) ? :sparse_eta1 : :separate_multiplier))
     dense_entries = (N + 1) * (N + 1)
