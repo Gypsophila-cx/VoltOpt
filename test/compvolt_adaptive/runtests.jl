@@ -4,6 +4,126 @@ using VoltOpt
 include(joinpath(@__DIR__, "oscillation_common.jl"))
 using .CompVoltAdaptiveOscillation
 
+include(joinpath(@__DIR__, "..", "..", "src", "CompVolt", "clenshaw_valuemat.jl"))
+
+@testset "explicit-node Clenshaw value matrix" begin
+    # u(z) = 1 + 2T_1(z) + 3T_2(z) = 6z^2 + 2z - 2.
+    coefficients = [1.0, 2.0, 3.0]
+    x_nodes = [-1.0, 0.25, 1.0]
+    eta_nodes = [-1.0, 0.0, 1.0]
+    returned_x, returned_eta, values = clenshaw_valuemat(
+        coefficients, x_nodes, eta_nodes,
+    )
+
+    expected = [
+        2.0       2.0       2.0;
+        2.0      -1.90625   -1.125;
+        2.0      -2.0       6.0
+    ]
+    @test returned_x == x_nodes
+    @test returned_eta == eta_nodes
+    @test size(values) == (length(x_nodes), length(eta_nodes))
+    @test values ≈ expected atol=2e-15 rtol=2e-15
+end
+
+module Example6PicardUnderTest
+include(joinpath(@__DIR__, "..", "..", "examples", "ex6_nonlinear", "ex6_nonlinear_picard.jl"))
+end
+
+@testset "Example 6 adaptive Picard helpers" begin
+    c = [1.0, -0.25, 0.125]
+    padded = Example6PicardUnderTest.pad_to_degree(c, 8)
+    @test length(padded) == 9
+    @test padded[1:length(c)] == c
+    @test all(iszero, padded[(length(c) + 1):end])
+    @test Example6PicardUnderTest.cheb_eval(padded, 0.37) ==
+          Example6PicardUnderTest.cheb_eval(c, 0.37)
+
+    # A zero-looking degree-N prefix must not hide a significant mode above N.
+    unresolved = zeros(34)
+    unresolved[1] = 1.0
+    unresolved[18] = 1e-8
+    check = Example6PicardUnderTest.strict_tail_chop(
+        unresolved, 16, 1e-10, 1.0,
+    )
+    @test !check.resolved
+    @test check.outside_max == 1e-8
+
+    resolved = zeros(34)
+    resolved[1:2] .= (1.0, 0.5)
+    check = Example6PicardUnderTest.strict_tail_chop(
+        resolved, 16, 1e-10, 1.0,
+    )
+    @test check.resolved
+    @test check.cutoff == 2
+    @test check.plateau
+
+    zero_check = Example6PicardUnderTest.strict_tail_chop(
+        zeros(17), 16, 1e-10, 1.0,
+    )
+    @test zero_check.resolved
+    @test zero_check.cutoff == 1
+
+    candidate, delta = Example6PicardUnderTest.aligned_picard_update(
+        [1.0, 2.0], [3.0, 4.0, 5.0], [10.0], 2.0,
+    )
+    @test candidate == [7.0, 10.0, 10.0]
+    @test delta == [-3.0, 10.0, 10.0]
+
+    integral, indicator, q_used = Example6PicardUnderTest.adaptive_gauss_legendre(
+        t -> t^4, -1.0, 0.25; tolerance=1e-12, q0=4, qmax=16,
+    )
+    exact_integral = (0.25^5 - (-1.0)^5) / 5
+    @test integral ≈ exact_integral atol=2e-15 rtol=2e-15
+    @test indicator <= 1e-12
+    @test q_used == 8
+
+    candidate = collect(1.0:10.0)
+    chopped = Example6PicardUnderTest.chop_candidate_preserving_old(
+        candidate, 2, 7,
+    )
+    @test chopped == candidate[1:7]
+end
+
+module NonlinearBenchUnderTest
+include(joinpath(
+    @__DIR__, "bench_nonlinear_volterra_clenshaw_vs_compvolt.jl",
+))
+end
+
+@testset "adaptive nonlinear benchmark paths" begin
+    N = 16
+    cu = NonlinearBenchUnderTest.smooth_test_coefficients(N)
+    weights = [exp(-12j / N) for j in 1:N]
+    @test length(cu) == N + 1
+    @test cu[1] == 1.0
+    @test cu[2:end] ≈ 0.2 .* weights ./ sum(weights) atol=0.0 rtol=2e-15
+    @test cu[end] > 0.0
+
+    kwargs = (; M0=N, tol=1e-10, Mmax=128, max_refinements=3)
+    clenshaw = NonlinearBenchUnderTest.nonlinear_volterra_action_clenshaw(
+        cu; kwargs...,
+    )
+    compvolt = NonlinearBenchUnderTest.nonlinear_volterra_action_compvolt(
+        cu; kwargs...,
+    )
+    for info in (clenshaw, compvolt)
+        @test propertynames(info) == (
+            :coefficients, :M, :eta, :theta, :refinements, :converged,
+        )
+        @test info.converged
+        @test max(info.eta, info.theta) <= kwargs.tol
+        @test length(info.coefficients) == info.M + 1
+    end
+
+    ncoeffs = max(length(clenshaw.coefficients), length(compvolt.coefficients))
+    c_clenshaw = zeros(ncoeffs)
+    c_compvolt = zeros(ncoeffs)
+    c_clenshaw[1:length(clenshaw.coefficients)] .= clenshaw.coefficients
+    c_compvolt[1:length(compvolt.coefficients)] .= compvolt.coefficients
+    @test norm(c_clenshaw - c_compvolt, Inf) <= 5e-12
+end
+
 function legacy_compvolt_nonlinear_fixed(K, cu::AbstractVector, M::Int)
     cpad = zeros(eltype(cu), M + 1)
     @inbounds for i in eachindex(cu)

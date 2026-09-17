@@ -18,9 +18,10 @@
 # needs repeated nonlinear Volterra actions with the current iterate.
 #
 # Method:
-#   Uses compVolt_nonlinear_fast for repeated nonlinear Volterra actions in a
-#   Picard fixed-point iteration. An optional direct baseline can be enabled by
-#   setting RUN_DIRECT_BASELINE=1.
+#   Builds the fixed manufactured right-hand side independently with adaptive
+#   Gauss--Legendre quadrature, then uses adaptive compVolt actions inside a
+#   Picard iteration whose working degree is refined without advancing the
+#   nonlinear state when a complete update is unresolved.
 #
 # Output files:
 #   data/ex6_nonlinear_picard_results.csv
@@ -30,15 +31,24 @@
 
 using LinearAlgebra
 using Printf
+using FastGaussQuadrature
 
 const α = 100.0
 const λ = 1.0
-const N = 1024
-const tol = eps(Float64)
+const oracle_tol = eps(Float64)
+const tol_quad = 100eps(Float64)
+const tol_picard = 100eps(Float64)
+const tol_chop = 10eps(Float64)
+const tol_rhs = 10eps(Float64)
+const N0 = 32
+const Nmax = 4096
+const Mmax = 8192
+const max_refinements = 8
 const maxit = 100
 const M_eval = 4001
-
-const RUN_DIRECT_BASELINE = get(ENV, "RUN_DIRECT_BASELINE", "0") == "1"
+const rhs_q0 = 16
+const rhs_qmax = 4096
+const rhs_Nmax = Nmax
 
 function _candidate_compvolt_paths(root::AbstractString)
     return (
@@ -67,11 +77,8 @@ end
 const project_root = find_project_root()
 const compvolt_file = _find_compvolt_file(project_root)
 
-# This checkout exposes the nonlinear API from src/CompVolt/compVolt.jl:
-#   compVolt_nonlinear_fast(K, cu; grid=CompVoltGrid(N), truncate_output=true)
-# The legacy lowercase src/compVolt.jl path is still accepted above for
-# compatibility with older example descriptions, but src/CompVolt/compVolt.jl
-# is the canonical path in the current tree.
+# The legacy lowercase src/compVolt.jl path remains accepted for older
+# checkouts, while src/CompVolt/compVolt.jl is canonical in this tree.
 include(compvolt_file)
 
 function lambertw_exp(s::Float64; maxiter::Int=100)
@@ -92,7 +99,7 @@ function lambertw_exp(s::Float64; maxiter::Int=100)
     converged = false
     for _ in 1:maxiter
         f = w + log(w) - s
-        if abs(f) <= tol * max(1.0, abs(s), abs(w))
+        if abs(f) <= oracle_tol * max(1.0, abs(s), abs(w))
             converged = true
             break
         end
@@ -106,7 +113,7 @@ function lambertw_exp(s::Float64; maxiter::Int=100)
             w_next = max(w / 2.0, floatmin(Float64))
         end
 
-        if abs(w_next - w) <= tol * max(1.0, abs(w_next))
+        if abs(w_next - w) <= oracle_tol * max(1.0, abs(w_next))
             w = w_next
             converged = true
             break
@@ -154,34 +161,344 @@ function cheb_eval_many(c::AbstractVector, xs)
     return vals
 end
 
-function nonlinear_volterra_action_compvolt(cu::AbstractVector, grid, K)
-    return compVolt_nonlinear_fast(K, cu; grid=grid, truncate_output=true)
+function pad_to_degree(c::AbstractVector, N::Int)
+    N >= 0 || throw(ArgumentError("N must be nonnegative."))
+    length(c) <= N + 1 || throw(ArgumentError(
+        "Cannot pad a degree-$(length(c) - 1) polynomial to the smaller degree N=$N.",
+    ))
+    padded = zeros(eltype(c), N + 1)
+    copyto!(padded, 1, c, 1, length(c))
+    return padded
 end
 
-function direct_trapezoid_baseline(u_vals::AbstractVector, x_nodes::AbstractVector, K)
-    out = zeros(Float64, length(x_nodes))
-    @inbounds for j in eachindex(x_nodes)
-        xj = x_nodes[j]
-        acc = 0.0
-        for i in 1:(j - 1)
-            a = x_nodes[i]
-            b = x_nodes[i + 1]
-            acc += 0.5 * (b - a) * (K(xj, a, u_vals[i]) + K(xj, b, u_vals[i + 1]))
-        end
-        out[j] = acc
+function strict_tail_chop(
+    c_full::AbstractVector,
+    N::Int,
+    tolerance::Real,
+    scale::Real;
+    tail_margin::Int=8,
+)
+    N >= 0 || throw(ArgumentError("N must be nonnegative."))
+    length(c_full) >= N + 1 || throw(ArgumentError(
+        "The full coefficient vector must contain all degrees through N=$N.",
+    ))
+    tolerance >= 0 || throw(ArgumentError("The chopping tolerance must be nonnegative."))
+    tail_margin >= 1 || throw(ArgumentError("tail_margin must be positive."))
+
+    threshold = Float64(tolerance) * max(1.0, Float64(scale))
+    magnitudes = abs.(Float64.(c_full))
+    outside_max = length(c_full) > N + 1 ?
+        maximum(@view magnitudes[(N + 2):end]) : 0.0
+
+    if all(iszero, magnitudes)
+        return (
+            resolved=true,
+            cutoff=1,
+            plateau=true,
+            threshold=threshold,
+            outside_max=outside_max,
+            tail=0.0,
+            margin_coefficients=N + 1,
+        )
     end
-    return out
+
+    envelope = similar(magnitudes)
+    running = 0.0
+    @inbounds for i in length(magnitudes):-1:1
+        running = max(running, magnitudes[i])
+        envelope[i] = running
+    end
+
+    plateau_index = findfirst(x -> x <= threshold, envelope)
+    margin_coefficients = plateau_index === nothing || plateau_index > N + 1 ?
+        0 : N + 2 - plateau_index
+    margin_ok = margin_coefficients >= tail_margin
+    outside_ok = outside_max <= threshold
+    resolved = plateau_index !== nothing && margin_ok && outside_ok
+    cutoff = plateau_index === nothing ? min(length(c_full), N + 1) :
+        max(1, plateau_index - 1)
+    tail = plateau_index === nothing ? envelope[end] : envelope[plateau_index]
+
+    return (
+        resolved=resolved,
+        cutoff=cutoff,
+        plateau=plateau_index !== nothing,
+        threshold=threshold,
+        outside_max=outside_max,
+        tail=tail,
+        margin_coefficients=margin_coefficients,
+    )
+end
+
+function aligned_picard_update(
+    c_g::AbstractVector,
+    c_volterra::AbstractVector,
+    c_old::AbstractVector,
+    λ::Real,
+)
+    ncoeffs = max(length(c_g), length(c_volterra), length(c_old))
+    T = promote_type(eltype(c_g), eltype(c_volterra), eltype(c_old), typeof(λ))
+    candidate = zeros(T, ncoeffs)
+    delta = zeros(T, ncoeffs)
+
+    @inbounds for i in 1:ncoeffs
+        g_i = i <= length(c_g) ? c_g[i] : zero(T)
+        v_i = i <= length(c_volterra) ? c_volterra[i] : zero(T)
+        old_i = i <= length(c_old) ? c_old[i] : zero(T)
+        candidate[i] = g_i + λ * v_i
+        delta[i] = candidate[i] - old_i
+    end
+    return candidate, delta
+end
+
+function gauss_legendre_rule(q::Int, rule_cache)
+    q >= 1 || throw(ArgumentError("The Gauss--Legendre order must be positive."))
+    if rule_cache === nothing
+        return gausslegendre(q)
+    end
+    return get!(rule_cache, q) do
+        gausslegendre(q)
+    end
+end
+
+function gauss_legendre_integral(f, a::Real, b::Real, q::Int, rule_cache=nothing)
+    a == b && return 0.0
+    nodes, weights = gauss_legendre_rule(q, rule_cache)
+    half_length = (Float64(b) - Float64(a)) / 2.0
+    midpoint = (Float64(a) + Float64(b)) / 2.0
+    integral = 0.0
+    @inbounds for i in eachindex(nodes)
+        value = f(midpoint + half_length * nodes[i])
+        isfinite(value) || error("Non-finite integrand value in reference Gauss--Legendre quadrature.")
+        integral += weights[i] * value
+    end
+    integral *= half_length
+    isfinite(integral) || error("Non-finite reference Gauss--Legendre integral.")
+    return integral
+end
+
+function adaptive_gauss_legendre(
+    f,
+    a::Real,
+    b::Real;
+    tolerance::Real,
+    q0::Int=16,
+    qmax::Int=4096,
+    rule_cache=nothing,
+)
+    isfinite(tolerance) && tolerance >= 0 || throw(ArgumentError(
+        "The Gauss--Legendre tolerance must be finite and nonnegative.",
+    ))
+    q0 >= 1 || throw(ArgumentError("q0 must be positive."))
+    qmax >= 2q0 || throw(ArgumentError("qmax must permit at least one q-to-2q comparison."))
+    a == b && return 0.0, 0.0, 0
+
+    q = q0
+    coarse = gauss_legendre_integral(f, a, b, q, rule_cache)
+    while true
+        qfine = 2q
+        qfine <= qmax || error(
+            "Reference Gauss--Legendre quadrature did not resolve before qmax=$qmax; " *
+            "last completed order was q=$q.",
+        )
+        fine = gauss_legendre_integral(f, a, b, qfine, rule_cache)
+        indicator = abs(fine - coarse) / max(1.0, abs(fine))
+        if indicator <= tolerance
+            return fine, indicator, qfine
+        end
+        q = qfine
+        coarse = fine
+    end
+end
+
+function chop_candidate_preserving_old(
+    candidate::AbstractVector,
+    suggested_cutoff::Int,
+    minimum_length::Int,
+)
+    isempty(candidate) && return copy(candidate)
+    1 <= minimum_length <= length(candidate) || throw(ArgumentError(
+        "minimum_length must lie between 1 and the candidate length.",
+    ))
+    cutoff = clamp(max(suggested_cutoff, minimum_length), 1, length(candidate))
+    return copy(@view candidate[1:cutoff])
+end
+
+function nested_chebyshev_nodes(N::Int, coarse_nodes=nothing)
+    N >= 1 || throw(ArgumentError("The Chebyshev degree must be positive."))
+    nodes = [-cospi(i / N) for i in 0:N]
+    if coarse_nodes !== nothing
+        N == 2(length(coarse_nodes) - 1) || throw(ArgumentError(
+            "The supplied coarse nodes must have half the requested degree.",
+        ))
+        @views nodes[1:2:end] .= coarse_nodes
+    end
+    return nodes
+end
+
+function fixed_rhs_value(x::Float64, rule_cache)
+    x == -1.0 && return uexact(x), 0.0, 0
+    integrand(t) = Kfun(x, t, uexact(t))
+    integral, indicator, q_used = adaptive_gauss_legendre(
+        integrand,
+        -1.0,
+        x;
+        tolerance=tol_rhs,
+        q0=rhs_q0,
+        qmax=rhs_qmax,
+        rule_cache=rule_cache,
+    )
+    return uexact(x) - λ * integral, indicator, q_used
+end
+
+function build_fixed_rhs()
+    build_t0 = time()
+    rule_cache = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
+    degree = N0
+    nodes = nested_chebyshev_nodes(degree)
+    values = Vector{Float64}(undef, degree + 1)
+    max_quad_indicator = 0.0
+    max_q_used = 0
+    @inbounds for i in eachindex(nodes)
+        values[i], indicator, q_used = fixed_rhs_value(nodes[i], rule_cache)
+        max_quad_indicator = max(max_quad_indicator, indicator)
+        max_q_used = max(max_q_used, q_used)
+    end
+    coefficients = ascending_values_to_cheb_coeffs(values)
+    last_consistency = Inf
+    last_tail = strict_tail_chop(
+        coefficients,
+        degree,
+        tol_rhs,
+        max(1.0, maximum(abs, values), maximum(abs, coefficients)),
+    )
+
+    while true
+        fine_degree = 2degree
+        fine_degree <= rhs_Nmax || error(
+            "Fixed right-hand-side construction failed before rhs_Nmax=$rhs_Nmax: " *
+            "last degree=$degree, consistency=$last_consistency, " *
+            "tail=$(last_tail.tail), threshold=$(last_tail.threshold), " *
+            "max quadrature indicator=$max_quad_indicator.",
+        )
+
+        fine_nodes = nested_chebyshev_nodes(fine_degree, nodes)
+        fine_values = Vector{Float64}(undef, fine_degree + 1)
+        @views fine_values[1:2:end] .= values
+        @inbounds for i in 2:2:length(fine_nodes)
+            fine_values[i], indicator, q_used = fixed_rhs_value(fine_nodes[i], rule_cache)
+            max_quad_indicator = max(max_quad_indicator, indicator)
+            max_q_used = max(max_q_used, q_used)
+        end
+
+        fine_coefficients = ascending_values_to_cheb_coeffs(fine_values)
+        rhs_scale = max(
+            1.0,
+            maximum(abs, fine_values),
+            maximum(abs, fine_coefficients),
+        )
+        coarse_on_fine = cheb_eval_many(coefficients, fine_nodes)
+        consistency = maximum(abs.(coarse_on_fine .- fine_values)) / rhs_scale
+        tail = strict_tail_chop(
+            fine_coefficients, fine_degree, tol_rhs, rhs_scale,
+        )
+
+        if consistency <= tol_rhs && tail.resolved
+            c_g = copy(@view fine_coefficients[1:tail.cutoff])
+            return c_g, (
+                rhs_build_time_sec=time() - build_t0,
+                degree=fine_degree,
+                N_eff=length(c_g) - 1,
+                consistency=consistency,
+                tail=tail.tail,
+                threshold=tail.threshold,
+                max_quad_indicator=max_quad_indicator,
+                max_q_used=max_q_used,
+            )
+        end
+
+        degree = fine_degree
+        nodes = fine_nodes
+        values = fine_values
+        coefficients = fine_coefficients
+        last_consistency = consistency
+        last_tail = tail
+    end
+end
+
+function independent_residual_check(
+    c_num::AbstractVector,
+    c_g::AbstractVector,
+    x_eval::AbstractVector,
+)
+    rule_cache = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
+    residual_inf = 0.0
+    max_quad_indicator = 0.0
+    max_q_used = 0
+    @inbounds for x in x_eval
+        if x == -1.0
+            integral = 0.0
+            indicator = 0.0
+            q_used = 0
+        else
+            integrand(t) = Kfun(x, t, cheb_eval(c_num, t))
+            integral, indicator, q_used = adaptive_gauss_legendre(
+                integrand,
+                -1.0,
+                x;
+                tolerance=tol_quad,
+                q0=rhs_q0,
+                qmax=rhs_qmax,
+                rule_cache=rule_cache,
+            )
+        end
+        residual = cheb_eval(c_num, x) - cheb_eval(c_g, x) - λ * integral
+        residual_inf = max(residual_inf, abs(residual))
+        max_quad_indicator = max(max_quad_indicator, indicator)
+        max_q_used = max(max_q_used, q_used)
+    end
+    return (
+        residual_inf=residual_inf,
+        max_quad_indicator=max_quad_indicator,
+        max_q_used=max_q_used,
+    )
 end
 
 function write_history_csv(path::AbstractString, history)
+    headers = [
+        "N",
+        "iter",
+        "residual",
+        "residual_relative",
+        "err_inf",
+        "max_abs_error",
+        "solve_time",
+        "elapsed_time",
+        "status",
+        "update_err",
+        "node_err",
+        "eqgrid_err",
+        "action_time_sec",
+        "total_elapsed_sec",
+        "intermediate_iter",
+        "N_eff",
+        "M",
+        "eta",
+        "theta",
+        "refinements",
+        "plateau",
+        "accepted",
+        "rhs_build_time_sec",
+    ]
     mkpath(dirname(path))
     open(path, "w") do io
-        println(io, "N,iter,residual,residual_relative,err_inf,max_abs_error,solve_time,elapsed_time,status,update_err,node_err,eqgrid_err,action_time_sec,total_elapsed_sec")
+        println(io, join(headers, ","))
         for h in history
-            @printf(io, "%d,%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%s,%.17e,%.17e,%.17e,%.17e,%.17e\n",
-                h.N, h.iter, h.residual, h.residual_relative, h.err_inf, h.max_abs_error,
-                h.solve_time, h.elapsed_time, h.status, h.update_err, h.node_err, h.eqgrid_err,
-                h.action_time_sec, h.total_elapsed_sec)
+            cells = map(headers) do header
+                value = getfield(h, Symbol(header))
+                value isa AbstractFloat ? @sprintf("%.17e", value) : string(value)
+            end
+            println(io, join(cells, ","))
         end
     end
 end
@@ -190,128 +507,259 @@ function relprint(path::AbstractString)
     return replace(relpath(path, project_root), '\\' => '/')
 end
 
-function main()
-    script_t0 = time()
-
-    data_dir = joinpath(@__DIR__, "data")
-    mkpath(data_dir)
-
-    grid = CompVoltGrid(N)
-    x_nodes = grid.x
-    x_eval = collect(range(-1.0, 1.0; length=M_eval))
-
-    u_exact_vals = uexact.(x_nodes)
-    u_exact_eval = uexact.(x_eval)
-    c_exact = ascending_values_to_cheb_coeffs(u_exact_vals)
-
-    # Construct g in the same discrete Chebyshev space. Since
-    # g = u_* - λ V_K[u_*], substituting u_* into u = g + λ V_K[u] gives the
-    # exact manufactured solution up to the compVolt discretization error.
-    V_exact = nonlinear_volterra_action_compvolt(c_exact, grid, Kfun)
-    c_g = c_exact .- λ .* V_exact
-
-    if RUN_DIRECT_BASELINE
-        u_g_vals = cheb_eval_many(c_g, x_nodes)
-        direct_time = @elapsed direct_vals = direct_trapezoid_baseline(u_g_vals, x_nodes, Kfun)
-        fast_time = @elapsed fast_coeffs = nonlinear_volterra_action_compvolt(c_g, grid, Kfun)
-        fast_vals = cheb_eval_many(fast_coeffs, x_nodes)
-        baseline_diff = norm(direct_vals - fast_vals, Inf)
-        @printf("direct baseline action_time_sec = %.6f, compVolt action_time_sec = %.6f, nodal_diff = %.16e\n",
-            direct_time, fast_time, baseline_diff)
-    end
-
-    # Zero-order approximation: ignore the Volterra memory term and start from g.
-    c_old = copy(c_g)
-    u_old_nodes = cheb_eval_many(c_old, x_nodes)
-
+function adaptive_picard_solve(
+    c_g::AbstractVector,
+    x_eval::AbstractVector,
+    u_exact_eval::AbstractVector,
+    rhs_build_time_sec::Real,
+)
+    c_old = zeros(Float64, N0 + 1)
+    copyto!(c_old, 1, c_g, 1, min(length(c_g), length(c_old)))
     history = NamedTuple[]
-    picard_t0 = time()
+    N = N0
+    iter = 0
+    intermediate_iter = 0
+    ρ0 = nothing
+    stopping_eta = nothing
     converged = false
+    failure_reason = ""
+    picard_t0 = time()
 
-    for iter in 1:maxit
+    while true
+        u_old_eval = cheb_eval_many(c_old, x_eval)
+        eqgrid_err = maximum(abs.(u_old_eval .- u_exact_eval))
+        x_nodes = nested_chebyshev_nodes(N)
+        node_err = maximum(abs.(cheb_eval_many(c_old, x_nodes) .- uexact.(x_nodes)))
+
+        cu = pad_to_degree(c_old, N)
+        action_error = nothing
+        info = nothing
         action_t0 = time()
-        V_old = nonlinear_volterra_action_compvolt(c_old, grid, Kfun)
+        try
+            info = compVolt_nonlinear_fast(
+                Kfun,
+                cu;
+                adaptive=true,
+                M0=N,
+                tol=tol_quad,
+                Mmax=Mmax,
+                max_refinements=max_refinements,
+                return_info=true,
+                truncate_output=false,
+            )
+        catch err
+            action_error = err
+        end
         action_time_sec = time() - action_t0
 
-        c_new = c_g .+ λ .* V_old
-        u_new_nodes = cheb_eval_many(c_new, x_nodes)
-        u_num_eval = cheb_eval_many(c_new, x_eval)
-
-        update_err = norm(u_new_nodes - u_old_nodes, Inf)
-        node_err = norm(u_new_nodes - u_exact_vals, Inf)
-        eqgrid_err = maximum(abs.(u_num_eval .- u_exact_eval))
-        total_elapsed_sec = time() - picard_t0
-        residual_scale = max(1.0, norm(u_new_nodes, Inf))
-        residual_relative = update_err / residual_scale
-        status = update_err <= tol * residual_scale ? "converged" : (iter == maxit ? "maxit" : "iterating")
-
-        push!(history, (
-            N=N,
-            iter=iter,
-            residual=update_err,
-            residual_relative=residual_relative,
-            err_inf=eqgrid_err,
-            max_abs_error=node_err,
-            solve_time=action_time_sec,
-            elapsed_time=total_elapsed_sec,
-            status=status,
-            update_err=update_err,
-            node_err=node_err,
-            eqgrid_err=eqgrid_err,
-            action_time_sec=action_time_sec,
-            total_elapsed_sec=total_elapsed_sec,
-        ))
-
-        @printf("iter = %3d  update_err = %.16e  node_err = %.16e  eqgrid_err = %.16e  action_time_sec = %.6f\n",
-            iter, update_err, node_err, eqgrid_err, action_time_sec)
-
-        if update_err <= tol * residual_scale
-            c_old = c_new
-            u_old_nodes = u_new_nodes
-            converged = true
+        if action_error !== nothing || !info.converged
+            M = info === nothing ? 0 : info.M
+            eta = info === nothing || info.eta === nothing ? NaN : Float64(info.eta)
+            theta = info === nothing || info.theta === nothing ? NaN : Float64(info.theta)
+            refinements = info === nothing ? 0 : info.refinements
+            total_elapsed_sec = time() - picard_t0
+            push!(history, (
+                N=N, iter=iter, residual=NaN, residual_relative=NaN,
+                err_inf=eqgrid_err, max_abs_error=node_err,
+                solve_time=action_time_sec, elapsed_time=total_elapsed_sec,
+                status="quadrature_failed", update_err=NaN, node_err=node_err,
+                eqgrid_err=eqgrid_err, action_time_sec=action_time_sec,
+                total_elapsed_sec=total_elapsed_sec,
+                intermediate_iter=intermediate_iter, N_eff=length(c_old) - 1,
+                M=M, eta=eta, theta=theta, refinements=refinements,
+                plateau=false, accepted=false,
+                rhs_build_time_sec=Float64(rhs_build_time_sec),
+            ))
+            failure_reason = action_error === nothing ?
+                "adaptive quadrature did not converge at N=$N, M=$M, eta=$eta, theta=$theta" :
+                sprint(showerror, action_error)
             break
         end
 
+        @assert info.eta !== nothing && info.theta !== nothing
+        @assert max(info.eta, info.theta) <= tol_quad
+        candidate, delta_full = aligned_picard_update(
+            c_g, info.coefficients, c_old, λ,
+        )
+        update_scale = max(
+            1.0,
+            maximum(abs, c_old),
+            maximum(abs, c_g),
+            maximum(abs, candidate),
+        )
+        tail = strict_tail_chop(delta_full, N, tol_chop, update_scale)
+        residual_values = cheb_eval_many(delta_full, x_eval)
+        residual = maximum(abs, residual_values)
+        residual_relative = residual / max(1.0, maximum(abs, u_old_eval))
+
+        status = "accepted"
+        accepted = false
+        if !tail.resolved
+            status = N >= Nmax ? "Nmax" : "refine_N"
+        else
+            if ρ0 === nothing
+                ρ0 = residual
+                stopping_eta = tol_picard * (1.0 + ρ0)
+            end
+            if residual <= stopping_eta
+                status = "converged"
+            elseif iter >= maxit
+                status = "maxit"
+            else
+                accepted = true
+            end
+        end
+
+        total_elapsed_sec = time() - picard_t0
+        push!(history, (
+            N=N, iter=iter, residual=residual,
+            residual_relative=residual_relative,
+            err_inf=eqgrid_err, max_abs_error=node_err,
+            solve_time=action_time_sec, elapsed_time=total_elapsed_sec,
+            status=status, update_err=residual, node_err=node_err,
+            eqgrid_err=eqgrid_err, action_time_sec=action_time_sec,
+            total_elapsed_sec=total_elapsed_sec,
+            intermediate_iter=intermediate_iter, N_eff=length(c_old) - 1,
+            M=info.M, eta=Float64(info.eta), theta=Float64(info.theta),
+            refinements=info.refinements, plateau=tail.plateau,
+            accepted=accepted, rhs_build_time_sec=Float64(rhs_build_time_sec),
+        ))
+
+        @printf(
+            "intermediate = %3d  iter = %3d  N = %4d  N_eff = %4d  M = %4d  residual = %.16e  eqgrid_err = %.16e  status = %s  action = %.6f sec\n",
+            intermediate_iter, iter, N, length(c_old) - 1, info.M,
+            residual, eqgrid_err, status, action_time_sec,
+        )
+
+        if status == "refine_N"
+            old_snapshot = copy(c_old)
+            iter_snapshot = iter
+            N_next = 2N
+            @assert length(pad_to_degree(c_old, N_next)) == 2N + 1
+            N = N_next
+            @assert c_old == old_snapshot
+            @assert iter == iter_snapshot
+            intermediate_iter += 1
+            continue
+        elseif status == "converged"
+            converged = true
+            break
+        elseif status == "Nmax"
+            failure_reason = (
+                "update unresolved at Nmax=$Nmax: tail=$(tail.tail), " *
+                "threshold=$(tail.threshold), outside_max=$(tail.outside_max), " *
+                "margin_coefficients=$(tail.margin_coefficients)"
+            )
+            break
+        elseif status == "maxit"
+            failure_reason = "maxit=$maxit accepted Picard updates reached before residual convergence"
+            break
+        end
+
+        c_new = chop_candidate_preserving_old(
+            candidate, tail.cutoff, length(c_old),
+        )
+        @assert length(c_new) <= N + 1
         c_old = c_new
-        u_old_nodes = u_new_nodes
+        iter += 1
+        intermediate_iter += 1
     end
 
-    if !converged
-        @warn "Picard iteration reached maxit before the machine-precision update criterion." maxit
-    end
+    return (
+        coefficients=c_old,
+        history=history,
+        accepted_iterations=iter,
+        intermediate_attempts=length(history),
+        N=history[end].N,
+        N_eff=length(c_old) - 1,
+        ρ0=ρ0,
+        stopping_eta=stopping_eta,
+        converged=converged,
+        failure_reason=failure_reason,
+        total_picard_time_sec=time() - picard_t0,
+        total_action_time_sec=sum(h.action_time_sec for h in history),
+    )
+end
 
-    total_picard_time = time() - picard_t0
-    c_num = c_old
-    u_num_eval = cheb_eval_many(c_num, x_eval)
-    final_nodes = cheb_eval_many(c_num, x_nodes)
-
-    final_update_err = history[end].update_err
-    final_node_err = norm(final_nodes - u_exact_vals, Inf)
-    final_eqgrid_err = maximum(abs.(u_num_eval .- u_exact_eval))
-    final_iter = history[end].iter
-
+function main()
+    script_t0 = time()
+    data_dir = joinpath(@__DIR__, "data")
+    mkpath(data_dir)
     history_csv = joinpath(data_dir, "ex6_nonlinear_picard_results.csv")
-
-    write_history_csv(history_csv, history)
-
-    total_runtime = time() - script_t0
-    script_rel = relprint(@__FILE__)
+    x_eval = collect(range(-1.0, 1.0; length=M_eval))
+    u_exact_eval = uexact.(x_eval)
 
     println("============================================================")
-    println("Example 6: nonlinear saturated-memory Volterra equation")
-    @printf("script file              = %s\n", script_rel)
+    println("Example 6: adaptive nonlinear Picard history")
+    @printf("script file              = %s\n", relprint(@__FILE__))
     @printf("α                        = %.1f\n", α)
     @printf("λ                        = %.1f\n", λ)
-    @printf("N                        = %d\n", N)
-    println("tol                      = eps(Float64)")
-    @printf("Picard iterations         = %d\n", final_iter)
-    @printf("final update err          = %.16e\n", final_update_err)
-    @printf("final node err            = %.16e\n", final_node_err)
+    @printf("oracle_tol               = %.16e\n", oracle_tol)
+    @printf("tol_quad                 = %.16e\n", tol_quad)
+    @printf("tol_picard               = %.16e\n", tol_picard)
+    @printf("tol_chop                 = %.16e\n", tol_chop)
+    @printf("tol_rhs                  = %.16e\n", tol_rhs)
+    @printf("N0, Nmax                 = %d, %d\n", N0, Nmax)
+    @printf("Mmax, max_refinements    = %d, %d\n", Mmax, max_refinements)
+    @printf("maxit, M_eval            = %d, %d\n", maxit, M_eval)
+    @printf("rhs q0, qmax, Nmax       = %d, %d, %d\n", rhs_q0, rhs_qmax, rhs_Nmax)
+    println("These tolerances are experiment settings, not error guarantees.")
+    println("============================================================")
+
+    c_g, rhs_info = build_fixed_rhs()
+    result = adaptive_picard_solve(
+        c_g, x_eval, u_exact_eval, rhs_info.rhs_build_time_sec,
+    )
+    write_history_csv(history_csv, result.history)
+
+    if !result.converged
+        @printf("history csv               = %s\n", relprint(history_csv))
+        error("Example 6 failed: $(result.failure_reason)")
+    end
+
+    independent = independent_residual_check(
+        result.coefficients, c_g, x_eval,
+    )
+    final_row = result.history[end]
+    final_eqgrid_err = maximum(abs.(
+        cheb_eval_many(result.coefficients, x_eval) .- u_exact_eval,
+    ))
+    total_runtime = time() - script_t0
+
+    println("============================================================")
+    println("Example 6 completed")
+    @printf("rhs build time            = %.6f sec\n", rhs_info.rhs_build_time_sec)
+    @printf("rhs degree / N_eff        = %d / %d\n", rhs_info.degree, rhs_info.N_eff)
+    @printf("rhs node consistency      = %.16e\n", rhs_info.consistency)
+    @printf("rhs coefficient tail      = %.16e (threshold %.16e)\n",
+        rhs_info.tail, rhs_info.threshold)
+    @printf("rhs max quad indicator    = %.16e (max q %d)\n",
+        rhs_info.max_quad_indicator, rhs_info.max_q_used)
+    @printf("initial residual ρ0       = %.16e\n", result.ρ0)
+    @printf("stopping eta              = %.16e\n", result.stopping_eta)
+    @printf("accepted Picard updates   = %d\n", result.accepted_iterations)
+    @printf("intermediate attempts     = %d\n", result.intermediate_attempts)
+    @printf("final N / N_eff / M       = %d / %d / %d\n",
+        result.N, result.N_eff, final_row.M)
+    @printf("final full residual       = %.16e\n", final_row.residual)
+    @printf("independent residual      = %.16e\n", independent.residual_inf)
+    @printf("independent quad indicator= %.16e (max q %d)\n",
+        independent.max_quad_indicator, independent.max_q_used)
     @printf("final eqgrid err          = %.16e\n", final_eqgrid_err)
-    @printf("total Picard time         = %.6f sec\n", total_picard_time)
+    @printf("cumulative action time    = %.6f sec\n", result.total_action_time_sec)
+    @printf("total Picard wall time    = %.6f sec\n", result.total_picard_time_sec)
     @printf("total runtime             = %.6f sec\n", total_runtime)
     @printf("history csv               = %s\n", relprint(history_csv))
     println("============================================================")
+    return (
+        result=result,
+        rhs=rhs_info,
+        independent=independent,
+        final_eqgrid_err=final_eqgrid_err,
+        total_runtime_sec=total_runtime,
+    )
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

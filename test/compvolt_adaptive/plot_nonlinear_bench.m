@@ -1,7 +1,7 @@
 % plot_nonlinear_bench.m
 %
 % Purpose:
-%   Plot nonlinear Volterra consistency-error and timing curves.
+%   Plot complete adaptive nonlinear Volterra integration timings.
 %
 % Benchmark:
 %   Visualizes the Clenshaw value-matrix and compVolt nonlinear action
@@ -11,15 +11,12 @@
 %   data/bench_nonlinear_volterra_clenshaw_vs_compvolt.csv
 %
 % Output files:
-%   figures/nonlinear_check_error.pdf
-%   figures/nonlinear_check_error.png
 %   figures/nonlinear_timing.pdf
 %   figures/nonlinear_timing.png
 %
 % Notes:
-%   The timing plot includes dashed tail reference lines for O(N^2 log N) and
-%   O(N^3). These are visual complexity guides only, not additional measured
-%   data.
+%   Dashed O(N^2 log N) and O(N^3) tail guides are shown only when the recorded
+%   M/N ratio is approximately constant for the corresponding method.
 %
 % Run:
 %   matlab -batch "run('test/compvolt_adaptive/plot_nonlinear_bench.m')"
@@ -46,7 +43,7 @@ if ~isfile(benchFile)
 end
 
 T = readtable(benchFile);
-require_columns(T, {'method', 'N', 'time', 'time_median', 'check_norm'}, benchFile);
+require_columns(T, {'method', 'N', 'time_median', 'M', 'converged'}, benchFile);
 
 %% Global style
 set(groot, 'defaultAxesFontName', 'Times New Roman');
@@ -55,13 +52,7 @@ set(groot, 'defaultLegendFontName', 'Times New Roman');
 set(groot, 'defaultAxesFontSize', 15);
 set(groot, 'defaultLineLineWidth', 2.0);
 
-%% Figure 1: consistency error on overlapping N values
-plot_error_curve( ...
-    T, ...
-    fullfile(figDir, 'nonlinear_check_error.pdf'), ...
-    fullfile(figDir, 'nonlinear_check_error.png'));
-
-%% Figure 2: timing by method
+%% Complete adaptive integration timing by method
 plot_timing_curves( ...
     T, ...
     fullfile(figDir, 'nonlinear_timing.pdf'), ...
@@ -76,80 +67,6 @@ function require_columns(T, names, fileName)
     if ~isempty(missingNames)
         error('Missing required columns in %s: %s', fileName, strjoin(missingNames, ', '));
     end
-end
-
-function plot_error_curve(T, outPdf, outPng)
-    % check_norm is already the difference between
-    % Clenshaw value matrix and compVolt, so only one curve is drawn.
-
-    methodStrings = string(T.method);
-
-    N_all = get_numeric_col(T, 'N');
-    err_all = get_numeric_col(T, 'check_norm');
-
-    N_compVolt = unique(N_all(methodStrings == "compVolt"));
-    N_clenshaw = unique(N_all(methodStrings == "clenshaw_valuemat"));
-
-    % Only compare on overlapping N values.
-    N_overlap = intersect(N_compVolt, N_clenshaw);
-    N_overlap = N_overlap(isfinite(N_overlap) & N_overlap > 0);
-    N_overlap = sort(N_overlap);
-
-    x = [];
-    y = [];
-
-    for j = 1:numel(N_overlap)
-        Nj = N_overlap(j);
-
-        rows = N_all == Nj & isfinite(err_all);
-        errVals = err_all(rows);
-
-        if isempty(errVals)
-            continue;
-        end
-
-        % Use one representative value for this N.
-        x(end + 1, 1) = Nj; %#ok<AGROW>
-        y(end + 1, 1) = median(errVals); %#ok<AGROW>
-    end
-
-    valid = isfinite(x) & isfinite(y) & x > 0;
-    x = x(valid);
-    y = y(valid);
-
-    if isempty(x)
-        error('No finite overlapping consistency-error data are available for %s.', outPdf);
-    end
-
-    [x, idx] = sort(x);
-    y = y(idx);
-
-    fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
-    hold on; box on; 
-    % grid on;
-
-    plot(x, y);
-
-    xlabel('$N$', 'Interpreter', 'latex');
-    ylabel('$\|F_{\mathrm{Clenshaw}} - F_{\mathrm{compVolt}}\|_{\infty}$', ...
-        'Interpreter', 'latex');
-
-    ax = gca;
-    ax.FontName = 'Times New Roman';
-    ax.XScale = 'linear';
-    ax.YScale = 'linear';
-    % ax.XGrid = 'on';
-    % ax.YGrid = 'on';
-    % ax.YMinorGrid = 'on';
-    % ax.MinorGridLineStyle = ':';
-
-    ylim([0, 3e-16]);
-
-    exportgraphics(fig, outPdf, 'ContentType', 'vector');
-    exportgraphics(fig, outPng, 'Resolution', 300);
-
-    fprintf('Saved: %s\n', outPdf);
-    fprintf('Saved: %s\n', outPng);
 end
 
 function plot_timing_curves(T, outPdf, outPng)
@@ -195,10 +112,14 @@ function plot_timing_curves(T, outPdf, outPng)
 
         x = get_numeric_col(Tk, 'N');
         y = get_numeric_col(Tk, 'time_median');
+        M = get_numeric_col(Tk, 'M');
+        converged = get_logical_col(Tk, 'converged');
 
-        valid = isfinite(x) & isfinite(y) & x > 0 & y > 0;
+        valid = converged & isfinite(x) & isfinite(y) & isfinite(M) & ...
+            x > 0 & y > 0 & M >= x;
         x = x(valid);
         y = y(valid);
+        M = M(valid);
 
         if isempty(x)
             continue;
@@ -206,6 +127,7 @@ function plot_timing_curves(T, outPdf, outPng)
 
         [x, idx] = sort(x);
         y = y(idx);
+        M = M(idx);
 
         loglog(x, y, ...
             'DisplayName', method_label(method));
@@ -215,6 +137,7 @@ function plot_timing_curves(T, outPdf, outPng)
         fieldName = matlab.lang.makeValidName(char(method));
         dataByMethod.(fieldName).x = x;
         dataByMethod.(fieldName).y = y;
+        dataByMethod.(fieldName).M = M;
     end
 
     if plotted == 0
@@ -235,6 +158,7 @@ function plot_timing_curves(T, outPdf, outPng)
     ax.FontName = 'Times New Roman';
     ax.XScale = 'log';
     ax.YScale = 'log';
+    ax.LooseInset = max(ax.TightInset, 0.04);
     % ax.XGrid = 'on';
     % ax.YGrid = 'on';
     % ax.YMinorGrid = 'on';
@@ -254,7 +178,7 @@ function add_tail_reference_lines( ...
     labelClenshawN3_xShift, labelClenshawN3_yShift, labelClenshawN3_fontSize)
 
     % compVolt: O(N^2 log N), drawn near the tail of the compVolt data.
-    if isfield(dataByMethod, matlab.lang.makeValidName('compVolt'))
+    if has_stable_grid_ratio(dataByMethod, 'compVolt')
         [xRef, yRef] = make_tail_reference( ...
             dataByMethod, 'compVolt', refTailFraction, 'N2logN');
 
@@ -279,7 +203,7 @@ function add_tail_reference_lines( ...
     end
 
     % Clenshaw: O(N^3), drawn near the tail of the Clenshaw data.
-    if isfield(dataByMethod, matlab.lang.makeValidName('clenshaw_valuemat'))
+    if has_stable_grid_ratio(dataByMethod, 'clenshaw_valuemat')
         [xRef, yRef] = make_tail_reference( ...
             dataByMethod, 'clenshaw_valuemat', refTailFraction, 'N3');
 
@@ -302,6 +226,22 @@ function add_tail_reference_lines( ...
                 'VerticalAlignment', 'middle');
         end
     end
+end
+
+function stable = has_stable_grid_ratio(dataByMethod, methodName)
+    fieldName = matlab.lang.makeValidName(methodName);
+    stable = false;
+    if ~isfield(dataByMethod, fieldName)
+        return;
+    end
+    x = dataByMethod.(fieldName).x;
+    M = dataByMethod.(fieldName).M;
+    if numel(x) < 2
+        return;
+    end
+    ratio = M ./ x;
+    ratio = ratio(isfinite(ratio) & ratio > 0);
+    stable = numel(ratio) >= 2 && max(ratio) / min(ratio) <= 1.05;
 end
 
 function [xRef, yRef] = make_tail_reference(dataByMethod, methodName, refTailFraction, modelName)
@@ -401,5 +341,20 @@ function x = get_numeric_col(T, name)
         catch
             x = str2double(string(v));
         end
+    end
+end
+
+function x = get_logical_col(T, name)
+    if ~ismember(name, T.Properties.VariableNames)
+        error('Column "%s" not found in table.', name);
+    end
+    v = T.(name);
+    if islogical(v)
+        x = v;
+    elseif isnumeric(v)
+        x = v ~= 0;
+    else
+        s = lower(strtrim(string(v)));
+        x = s == "true" | s == "1";
     end
 end

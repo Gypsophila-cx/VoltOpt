@@ -1,20 +1,16 @@
 % ex6_plot.m
 %
 % Purpose:
-%   Plot the Example 6 equidistant-grid error curves from the Picard output
-%   tables.
+%   Plot adaptive Picard equidistant-grid error and working-degree history.
 %
 % Problem:
 %   Nonlinear saturated-memory Volterra--Urysohn equation solved by the Example
 %   6 Picard scripts.
 %
-% Input files:
-%   data/ex6_fixed10_varyN.csv
+% Input file:
 %   data/ex6_nonlinear_picard_results.csv
 %
 % Output files:
-%   figures/ex6_fixed10_varyN_eqgrid_error.pdf
-%   figures/ex6_fixed10_varyN_eqgrid_error.png
 %   figures/ex6_picard_eqgrid_error_history.pdf
 %   figures/ex6_picard_eqgrid_error_history.png
 %
@@ -36,12 +32,7 @@ if ~exist(figDir, 'dir')
     mkdir(figDir);
 end
 
-fixedFile  = fullfile(dataDir, 'ex6_fixed10_varyN.csv');
 picardFile = fullfile(dataDir, 'ex6_nonlinear_picard_results.csv');
-
-if ~isfile(fixedFile)
-    error('Cannot find file: %s', fixedFile);
-end
 
 if ~isfile(picardFile)
     error('Cannot find file: %s', picardFile);
@@ -57,75 +48,54 @@ markerSize = 6;
 fontSize   = 12;
 
 %% Read data
-T_fixed  = readtable(fixedFile);
 T_picard = readtable(picardFile);
-
-requiredFixedCols = {'N', 'final_eqgrid_err'};
-requiredPicardCols = {'iter', 'eqgrid_err'};
-
-checkColumns(T_fixed, requiredFixedCols, fixedFile);
+requiredPicardCols = {'intermediate_iter', 'iter', 'eqgrid_err', 'N'};
 checkColumns(T_picard, requiredPicardCols, picardFile);
+T_picard = sortrows(T_picard, 'intermediate_iter');
 
-T_fixed  = sortrows(T_fixed, 'N');
-T_picard = sortrows(T_picard, 'iter');
-
-%% Figure 1: fixed 10 iterations, varying N
-N = T_fixed.N;
-eqgridErrFixed = positiveOnly(T_fixed.final_eqgrid_err);
-
-fig1 = figure('Color', 'w');
-ax1 = axes(fig1);
-hold(ax1, 'on');
-
-semilogy(ax1, N, eqgridErrFixed, ...
-    'LineWidth', lineWidth);
-
-hold(ax1, 'off');
-
-set(ax1, 'XScale', 'linear');
-set(ax1, 'YScale', 'log');
-
-xlabel(ax1, '$N$');
-ylabel(ax1, 'error');
-%title(ax1, 'Fixed 10 Picard iterations: varying $N$');
-
-box(ax1, 'on');
-set(ax1, 'FontSize', fontSize);
-
-xlim(ax1, [min(N), max(N)]);
-
-saveFigureStable(fig1, figDir, 'ex6_fixed10_varyN_eqgrid_error');
-
-%% Figure 2: Picard iteration error history
-iter = T_picard.iter;
+%% Adaptive Picard intermediate-attempt history
+intermediateIter = double(T_picard.intermediate_iter);
+outerIter = double(T_picard.iter);
 eqgridErrPicard = positiveOnly(T_picard.eqgrid_err);
+workingDegree = double(T_picard.N);
+newOuterIteration = [true; diff(outerIter) ~= 0];
 
-fig2 = figure('Color', 'w');
+fig2 = figure('Color', 'w', 'Position', [100, 100, 800, 560]);
 ax2 = axes(fig2);
 hold(ax2, 'on');
 
-semilogy(ax2, iter, eqgridErrPicard, ...
-    'LineWidth', lineWidth);
+yyaxis(ax2, 'left');
+hError = plot(ax2, intermediateIter, eqgridErrPicard, ...
+    'LineWidth', lineWidth, 'DisplayName', 'error');
+hStarts = plot(ax2, intermediateIter(newOuterIteration), ...
+    eqgridErrPicard(newOuterIteration), 'o', ...
+    'LineStyle', 'none', 'MarkerSize', markerSize, ...
+    'MarkerFaceColor', hError.Color, 'MarkerEdgeColor', hError.Color, ...
+    'DisplayName', 'new Picard iteration');
+set(ax2, 'YScale', 'log');
+ylabel(ax2, 'error');
+
+yyaxis(ax2, 'right');
+hDegree = stairs(ax2, intermediateIter, workingDegree, ...
+    'LineWidth', lineWidth, 'DisplayName', 'working degree $N$');
+set(ax2, 'YScale', 'linear');
+ylabel(ax2, 'working degree $N$');
 
 hold(ax2, 'off');
-
 set(ax2, 'XScale', 'linear');
-set(ax2, 'YScale', 'log');
-
-xlabel(ax2, 'iteration');
-ylabel(ax2, 'error');
-%title(ax2, 'Picard iteration error history');
-
+xlabel(ax2, 'intermediate iterations');
 box(ax2, 'on');
 set(ax2, 'FontSize', fontSize);
-
-xlim(ax2, [min(iter), max(iter)]);
-xticks(ax2, iter);
+xlim(ax2, [min(intermediateIter), max(intermediateIter)]);
+if numel(intermediateIter) <= 25
+    xticks(ax2, intermediateIter);
+end
+legend(ax2, [hError, hStarts, hDegree], 'Location', 'best');
+set(ax2, 'LooseInset', max(get(ax2, 'TightInset'), 0.04));
 
 saveFigureStable(fig2, figDir, 'ex6_picard_eqgrid_error_history');
 
 fprintf('Figures saved to:\n');
-fprintf('  %s\n', fullfile(figDir, 'ex6_fixed10_varyN_eqgrid_error.pdf'));
 fprintf('  %s\n', fullfile(figDir, 'ex6_picard_eqgrid_error_history.pdf'));
 
 %% Local helper functions
