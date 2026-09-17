@@ -15,8 +15,8 @@
 %   figures/nonlinear_timing.png
 %
 % Notes:
-%   Dashed O(N^2 log N) and O(N^3) tail guides are shown only when the recorded
-%   M/N ratio is approximately constant for the corresponding method.
+%   Dashed O(N^2 log N) and O(N^3) theoretical guides are shown on the tails
+%   of the corresponding timing curves.
 %
 % Run:
 %   matlab -batch "run('test/compvolt_adaptive/plot_nonlinear_bench.m')"
@@ -28,6 +28,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir = fullfile(scriptDir, 'figures');
@@ -49,8 +51,8 @@ require_columns(T, {'method', 'N', 'time_median', 'M', 'converged'}, benchFile);
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
 set(groot, 'defaultLegendFontName', 'Times New Roman');
-set(groot, 'defaultAxesFontSize', 15);
-set(groot, 'defaultLineLineWidth', 2.0);
+set(groot, 'defaultAxesFontSize', paperStyle.TickFontSize);
+set(groot, 'defaultLineLineWidth', paperStyle.PlotLineWidth);
 
 %% Complete adaptive integration timing by method
 plot_timing_curves( ...
@@ -70,6 +72,7 @@ function require_columns(T, names, fileName)
 end
 
 function plot_timing_curves(T, outPdf, outPng)
+    paperStyle = voltopt_plot_style();
     % Required drawing order: compVolt first, Clenshaw second.
     methodOrder = ["compVolt", "clenshaw_valuemat"];
     allMethods = unique(string(T.method), 'stable');
@@ -98,7 +101,8 @@ function plot_timing_curves(T, outPdf, outPng)
     labelClenshawN3_yShift   = 0.75;      % >1 moves up,    <1 moves down
     labelClenshawN3_fontSize = 12;
 
-    fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
+    fig = figure('Color', 'w', 'Units', 'centimeters', ...
+        'Position', [2, 2, paperStyle.FigureSize]);
     hold on; box on; 
     % grid on;
 
@@ -164,8 +168,7 @@ function plot_timing_curves(T, outPdf, outPng)
     % ax.YMinorGrid = 'on';
     % ax.MinorGridLineStyle = ':';
 
-    exportgraphics(fig, outPdf, 'ContentType', 'vector');
-    exportgraphics(fig, outPng, 'Resolution', 300);
+    voltopt_export_figure(fig, ax, outPdf, outPng);
 
     fprintf('Saved: %s\n', outPdf);
     fprintf('Saved: %s\n', outPng);
@@ -178,70 +181,50 @@ function add_tail_reference_lines( ...
     labelClenshawN3_xShift, labelClenshawN3_yShift, labelClenshawN3_fontSize)
 
     % compVolt: O(N^2 log N), drawn near the tail of the compVolt data.
-    if has_stable_grid_ratio(dataByMethod, 'compVolt')
-        [xRef, yRef] = make_tail_reference( ...
-            dataByMethod, 'compVolt', refTailFraction, 'N2logN');
+    [xRef, yRef] = make_tail_reference( ...
+        dataByMethod, 'compVolt', refTailFraction, 'N2logN');
 
-        if ~isempty(xRef)
-            yRef = lineCompVoltN2logN_yScale * yRef;
+    if ~isempty(xRef)
+        yRef = lineCompVoltN2logN_yScale * yRef;
 
-            loglog(xRef, yRef, 'k--', ...
-                'LineWidth', 1.5, ...
-                'HandleVisibility', 'off');
+        loglog(xRef, yRef, 'k--', ...
+            'LineWidth', 1.5, ...
+            'HandleVisibility', 'off');
 
-            labelIdx = max(1, round(0.68 * numel(xRef)));
-            text( ...
-                xRef(labelIdx) * labelCompVoltN2logN_xShift, ...
-                yRef(labelIdx) * labelCompVoltN2logN_yShift, ...
-                '$\mathcal{O}(N^2 \log N)$', ...
-                'Interpreter', 'latex', ...
-                'FontName', 'Times New Roman', ...
-                'FontSize', labelCompVoltN2logN_fontSize, ...
-                'HorizontalAlignment', 'center', ...
-                'VerticalAlignment', 'middle');
-        end
+        labelIdx = max(1, round(0.68 * numel(xRef)));
+        text( ...
+            xRef(labelIdx) * labelCompVoltN2logN_xShift, ...
+            yRef(labelIdx) * labelCompVoltN2logN_yShift, ...
+            '$\mathcal{O}(N^2 \log N)$', ...
+            'Interpreter', 'latex', ...
+            'FontName', 'Times New Roman', ...
+            'FontSize', labelCompVoltN2logN_fontSize, ...
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'middle');
     end
 
     % Clenshaw: O(N^3), drawn near the tail of the Clenshaw data.
-    if has_stable_grid_ratio(dataByMethod, 'clenshaw_valuemat')
-        [xRef, yRef] = make_tail_reference( ...
-            dataByMethod, 'clenshaw_valuemat', refTailFraction, 'N3');
+    [xRef, yRef] = make_tail_reference( ...
+        dataByMethod, 'clenshaw_valuemat', refTailFraction, 'N3');
 
-        if ~isempty(xRef)
-            yRef = lineClenshawN3_yScale * yRef;
+    if ~isempty(xRef)
+        yRef = lineClenshawN3_yScale * yRef;
 
-            loglog(xRef, yRef, 'k--', ...
-                'LineWidth', 1.5, ...
-                'HandleVisibility', 'off');
+        loglog(xRef, yRef, 'k--', ...
+            'LineWidth', 1.5, ...
+            'HandleVisibility', 'off');
 
-            labelIdx = max(1, round(0.68 * numel(xRef)));
-            text( ...
-                xRef(labelIdx) * labelClenshawN3_xShift, ...
-                yRef(labelIdx) * labelClenshawN3_yShift, ...
-                '$\mathcal{O}(N^3)$', ...
-                'Interpreter', 'latex', ...
-                'FontName', 'Times New Roman', ...
-                'FontSize', labelClenshawN3_fontSize, ...
-                'HorizontalAlignment', 'center', ...
-                'VerticalAlignment', 'middle');
-        end
+        labelIdx = max(1, round(0.68 * numel(xRef)));
+        text( ...
+            xRef(labelIdx) * labelClenshawN3_xShift, ...
+            yRef(labelIdx) * labelClenshawN3_yShift, ...
+            '$\mathcal{O}(N^3)$', ...
+            'Interpreter', 'latex', ...
+            'FontName', 'Times New Roman', ...
+            'FontSize', labelClenshawN3_fontSize, ...
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'middle');
     end
-end
-
-function stable = has_stable_grid_ratio(dataByMethod, methodName)
-    fieldName = matlab.lang.makeValidName(methodName);
-    stable = false;
-    if ~isfield(dataByMethod, fieldName)
-        return;
-    end
-    x = dataByMethod.(fieldName).x;
-    M = dataByMethod.(fieldName).M;
-    if numel(x) < 2
-        return;
-    end
-    ratio = M ./ x;
-    ratio = ratio(isfinite(ratio) & ratio > 0);
-    stable = numel(ratio) >= 2 && max(ratio) / min(ratio) <= 1.05;
 end
 
 function [xRef, yRef] = make_tail_reference(dataByMethod, methodName, refTailFraction, modelName)

@@ -32,6 +32,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir = fullfile(scriptDir, 'figures');
@@ -67,8 +69,8 @@ T_fixedN = keep_success_rows(T_fixedN);
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
 set(groot, 'defaultLegendFontName', 'Times New Roman');
-set(groot, 'defaultAxesFontSize', 15);
-set(groot, 'defaultLineLineWidth', 2.0);
+set(groot, 'defaultAxesFontSize', paperStyle.TickFontSize);
+set(groot, 'defaultLineLineWidth', paperStyle.PlotLineWidth);
 
 %% Figure 1: fixed coefficient size C, varying N
 plot_timing_curves( ...
@@ -124,6 +126,7 @@ function T = keep_success_rows(T)
 end
 
 function plot_timing_curves(T, xCol, xLabelText, outPdf, outPng)
+    paperStyle = voltopt_plot_style();
     if height(T) == 0
         error('No successful timing rows are available for %s.', outPdf);
     end
@@ -136,7 +139,8 @@ function plot_timing_curves(T, xCol, xLabelText, outPdf, outPng)
 
     colors = lines(max(numel(methods), 1));
 
-    fig = figure('Color', 'w', 'Position', [100, 100, 760, 560]);
+    fig = figure('Color', 'w', 'Units', 'centimeters', ...
+        'Position', [2, 2, paperStyle.FigureSize]);
     hold on; box on; grid on;
 
     plotted = 0;
@@ -191,8 +195,7 @@ function plot_timing_curves(T, xCol, xLabelText, outPdf, outPng)
     ax.YMinorGrid = 'on';
     ax.MinorGridLineStyle = ':';
 
-    exportgraphics(fig, outPdf, 'ContentType', 'vector');
-    exportgraphics(fig, outPng, 'Resolution', 300);
+    voltopt_export_figure(fig, ax, outPdf, outPng);
 
     fprintf('Saved: %s\n', outPdf);
     fprintf('Saved: %s\n', outPng);

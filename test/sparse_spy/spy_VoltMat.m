@@ -17,6 +17,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir  = fullfile(scriptDir, 'figures');
@@ -40,7 +42,7 @@ end
 
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
-set(groot, 'defaultAxesFontSize', 13);
+set(groot, 'defaultAxesFontSize', paperStyle.TickFontSize);
 
 markerSize = 8;
 
@@ -74,7 +76,8 @@ plot_one_spy( ...
     true, ...
     1234);
 
-figAll = figure('Color', 'w', 'Position', [100, 100, 1380, 430]);
+figAll = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.MultiPanelFigureSize]);
 tiledlayout(figAll, 1, 3, 'Padding', 'compact', 'TileSpacing', 'compact');
 
 ax = nexttile;
@@ -89,10 +92,9 @@ ax = nexttile;
 draw_colored_spy(ax, S.A_jac, min(nPlot, min(size(S.A_jac))), ...
                  '$P_n^{(0.3,0.2)}(x)$', markerSize, true, 1234);
 
-exportgraphics(figAll, fullfile(figDir, 'spy_VoltMat_all.pdf'), ...
-               'ContentType', 'vector');
-exportgraphics(figAll, fullfile(figDir, 'spy_VoltMat_all.png'), ...
-               'Resolution', 300);
+voltopt_export_figure(figAll, findall(figAll, 'Type', 'axes'), ...
+    fullfile(figDir, 'spy_VoltMat_all.pdf'), ...
+    fullfile(figDir, 'spy_VoltMat_all.png'), 'multipanel');
 
 structurePlots = { ...
     S.A_cheb, 'Chebyshev basis', 'spy_VoltMat_Chebyshev_structure', true,  2345; ...
@@ -132,20 +134,23 @@ function require_fields(S, names, fileName)
 end
 
 function plot_one_spy(A, nPlot, titleText, outPdf, outPng, markerSize, addTopDenseRows, seed)
-    fig = figure('Color', 'w', 'Position', [100, 100, 620, 560]);
+    paperStyle = voltopt_plot_style();
+    fig = figure('Color', 'w', 'Units', 'centimeters', ...
+        'Position', [2, 2, paperStyle.FigureSize]);
     ax = axes(fig);
 
     draw_colored_spy(ax, A, nPlot, titleText, markerSize, addTopDenseRows, seed);
 
-    exportgraphics(fig, outPdf, 'ContentType', 'vector');
-    exportgraphics(fig, outPng, 'Resolution', 300);
+    voltopt_export_figure(fig, ax, outPdf, outPng, 'square');
 
     fprintf('Saved: %s\n', outPdf);
     fprintf('Saved: %s\n', outPng);
 end
 
 function plot_one_structure_spy(A, nPlot, titleText, outPdf, outPng, markerSize, addTopDenseRows, seed)
-    fig = figure('Color', 'w', 'Position', [100, 100, 620, 560]);
+    paperStyle = voltopt_plot_style();
+    fig = figure('Color', 'w', 'Units', 'centimeters', ...
+        'Position', [2, 2, paperStyle.FigureSize]);
     ax = axes(fig);
 
     A = A(1:nPlot, 1:nPlot);
@@ -174,19 +179,20 @@ function plot_one_structure_spy(A, nPlot, titleText, outPdf, outPng, markerSize,
         'YDir', 'reverse', ...
         'Box', 'on', ...
         'Layer', 'top', ...
-        'FontName', 'Times New Roman', ...
-        'FontSize', 13, ...
+        'FontName', paperStyle.FontName, ...
+        'FontSize', paperStyle.TickFontSize, ...
+        'LineWidth', paperStyle.AxesLineWidth, ...
         'XGrid', 'off', ...
         'YGrid', 'off');
 
-    exportgraphics(fig, outPdf, 'ContentType', 'vector');
-    exportgraphics(fig, outPng, 'Resolution', 300);
+    voltopt_export_figure(fig, ax, outPdf, outPng, 'square');
 
     fprintf('Saved: %s\n', outPdf);
     fprintf('Saved: %s\n', outPng);
 end
 
 function draw_colored_spy(ax, A, nPlot, titleText, markerSize, addTopDenseRows, seed)
+    paperStyle = voltopt_plot_style();
     A = A(1:nPlot, 1:nPlot);
 
     [bandwidth, ~] = detect_bandwidth(A, addTopDenseRows);
@@ -214,8 +220,8 @@ function draw_colored_spy(ax, A, nPlot, titleText, markerSize, addTopDenseRows, 
 
     cb = colorbar(ax);
     cb.Label.String = '';
-    cb.FontName = 'Times New Roman';
-    cb.FontSize = 10;
+    cb.FontName = paperStyle.FontName;
+    cb.FontSize = paperStyle.TickFontSize;
     set_colorbar_power_ticks(cb, colorFloor, colorTop);
 
     xlabel(ax, 'column index', 'Interpreter', 'latex');
@@ -230,8 +236,9 @@ function draw_colored_spy(ax, A, nPlot, titleText, markerSize, addTopDenseRows, 
         'YDir', 'reverse', ...
         'Box', 'on', ...
         'Layer', 'top', ...
-        'FontName', 'Times New Roman', ...
-        'FontSize', 13, ...
+        'FontName', paperStyle.FontName, ...
+        'FontSize', paperStyle.TickFontSize, ...
+        'LineWidth', paperStyle.AxesLineWidth, ...
         'XGrid', 'off', ...
         'YGrid', 'off');
 end

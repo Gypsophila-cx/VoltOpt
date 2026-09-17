@@ -74,6 +74,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir  = fullfile(scriptDir, 'figures');
@@ -123,14 +125,15 @@ vmTime      = vmTime(validVMTime);
 %  Figure 1: error curve
 % =============================================================
 
-fig1 = figure('Color', 'w');
+fig1 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 hold on;
 
 semilogy(TvmErr.depth, TvmErr.max_error, ...
-    'LineWidth', 1.5);
+    'LineWidth', paperStyle.PlotLineWidth);
 
 semilogy(TgoErr.depth, TgoErr.max_error,  ...
-    'LineWidth', 1.5);
+    'LineWidth', paperStyle.PlotLineWidth);
 
 xlabel('kernel approximation order $n$', 'Interpreter', 'latex');
 ylabel('error', 'Interpreter', 'latex');
@@ -142,7 +145,9 @@ legend( ...
     'Interpreter', 'latex' ...
 );
 
-set(gca, ...
+ax1 = gca;
+set(ax1, ...
+    'FontName', paperStyle.FontName, ...
     'FontSize', 12, ...
     'TickLabelInterpreter', 'latex', ...
     'XScale', 'linear', ...
@@ -154,21 +159,21 @@ box on;
 pdfFile1 = fullfile(figDir, 'ex4_depth_error_N200.pdf');
 pngFile1 = fullfile(figDir, 'ex4_depth_error_N200.png');
 
-exportgraphics(fig1, pdfFile1, 'ContentType', 'vector');
-exportgraphics(fig1, pngFile1, 'Resolution', 300);
+voltopt_export_figure(fig1, ax1, pdfFile1, pngFile1);
 
 %% ============================================================
 %  Figure 2: timing curve, log-log
 % =============================================================
 
-fig2 = figure('Color', 'w');
+fig2 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 hold on;
 
 loglog(vmDepthTime, vmTime,  ...
-    'LineWidth', 1.5);
+    'LineWidth', paperStyle.PlotLineWidth);
 
 loglog(goDepthTime, goTime,  ...
-    'LineWidth', 1.5);
+    'LineWidth', paperStyle.PlotLineWidth);
 
 % Reference complexity curves on the tail.
 tailCount = 40;
@@ -196,7 +201,9 @@ legend( ...
     'Interpreter', 'latex' ...
 );
 
-set(gca, ...
+ax2 = gca;
+set(ax2, ...
+    'FontName', paperStyle.FontName, ...
     'FontSize', 12, ...
     'TickLabelInterpreter', 'latex', ...
     'XScale', 'log', ...
@@ -209,8 +216,7 @@ box on;
 pdfFile2 = fullfile(figDir, 'ex4_depth_time_N200.pdf');
 pngFile2 = fullfile(figDir, 'ex4_depth_time_N200.png');
 
-exportgraphics(fig2, pdfFile2, 'ContentType', 'vector');
-exportgraphics(fig2, pngFile2, 'Resolution', 300);
+voltopt_export_figure(fig2, ax2, pdfFile2, pngFile2);
 
 %% Print summary
 fprintf('Saved figures:\n');

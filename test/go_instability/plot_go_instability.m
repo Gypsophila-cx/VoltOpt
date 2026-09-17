@@ -1,6 +1,7 @@
 % Final figures for the Gutleb-Olver instability validation.
 
 script_dir = fileparts(mfilename('fullpath'));
+addpath(fullfile(fileparts(fileparts(script_dir)), 'tools'));
 data_dir = fullfile(script_dir, 'data');
 fig_dir = fullfile(script_dir, 'figures');
 if ~exist(fig_dir, 'dir')
@@ -171,14 +172,16 @@ function y = zero_to_nan(x)
 end
 
 function fig = new_figure()
-    fig = figure('Color', 'w');
-    set(fig, 'Units', 'inches', 'Position', [1, 1, 5.4, 3.6]);
+    paperStyle = voltopt_plot_style();
+    fig = figure('Color', 'w', 'Units', 'centimeters', ...
+        'Position', [2, 2, paperStyle.FigureSize]);
 end
 
 function style_axes()
-    set(gca, 'FontName', 'Times New Roman', ...
-        'FontSize', 12, ...
-        'LineWidth', 1.5, ...
+    paperStyle = voltopt_plot_style();
+    set(gca, 'FontName', paperStyle.FontName, ...
+        'FontSize', paperStyle.TickFontSize, ...
+        'LineWidth', paperStyle.AxesLineWidth, ...
         'Box', 'on', ...
         'XGrid', 'on', ...
         'YGrid', 'on');
@@ -187,12 +190,7 @@ end
 function save_both(fig, output_base)
     pdf_path = [output_base, '.pdf'];
     png_path = [output_base, '.png'];
-    try
-        exportgraphics(fig, pdf_path, 'ContentType', 'vector');
-        exportgraphics(fig, png_path, 'Resolution', 300);
-    catch
-        print(fig, pdf_path, '-dpdf', '-painters');
-        print(fig, png_path, '-dpng', '-r300');
-    end
+    axesList = findall(fig, 'Type', 'axes');
+    voltopt_export_figure(fig, axesList, pdf_path, png_path);
     close(fig);
 end

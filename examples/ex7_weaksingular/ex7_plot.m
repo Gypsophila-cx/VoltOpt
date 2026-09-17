@@ -41,6 +41,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir  = fullfile(scriptDir, 'figures');
@@ -94,13 +96,14 @@ end
 %% Plot options
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
-set(groot, 'defaultLineLineWidth', 1.5);
-set(groot, 'defaultAxesFontSize', 12);
-set(groot, 'defaultTextFontSize', 12);
+set(groot, 'defaultLineLineWidth', paperStyle.PlotLineWidth);
+set(groot, 'defaultAxesFontSize', paperStyle.TickFontSize);
+set(groot, 'defaultTextFontSize', paperStyle.LabelFontSize);
 
 %% Figure 1: Cauchy error curve
 if plotErrorFigure
-figErr = figure('Color', 'w');
+figErr = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 hold on;
 
 semilogy(TvoltErr.N, TvoltErr.cauchy_error, '-', ...
@@ -136,13 +139,13 @@ end
 pdfErrFile = fullfile(figDir, 'ex7_cauchy_error_grid.pdf');
 pngErrFile = fullfile(figDir, 'ex7_cauchy_error_grid.png');
 
-exportgraphics(figErr, pdfErrFile, 'ContentType', 'vector');
-exportgraphics(figErr, pngErrFile, 'Resolution', 300);
+voltopt_export_figure(figErr, axError, pdfErrFile, pngErrFile);
 end
 
 %% Figure 2: Total timing curve
 if plotTimingFigure
-figTime = figure('Color', 'w');
+figTime = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 axTime = axes(figTime);
 hold(axTime, 'on');
 
@@ -202,8 +205,7 @@ hold(axTime, 'off');
 pdfTimeFile = fullfile(figDir, 'ex7_total_time.pdf');
 pngTimeFile = fullfile(figDir, 'ex7_total_time.png');
 
-exportgraphics(figTime, pdfTimeFile, 'ContentType', 'vector');
-exportgraphics(figTime, pngTimeFile, 'Resolution', 300);
+voltopt_export_figure(figTime, axTime, pdfTimeFile, pngTimeFile);
 end
 
 %% Print output paths

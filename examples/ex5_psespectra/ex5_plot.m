@@ -20,6 +20,8 @@
 clear; clc; close all;
 
 scriptDir = fileparts(mfilename('fullpath'));
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 dataDir = fullfile(scriptDir, 'data');
 figDir = fullfile(scriptDir, 'figures');
 
@@ -47,14 +49,16 @@ Zplot = Z.';
 
 levels = -14:1:-1;
 
-figure("Color", "w");
+fig = figure("Color", "w", "Units", "centimeters", ...
+    "Position", [2, 2, paperStyle.FigureSize]);
+ax = axes(fig);
 
-contour(X, Y, Zplot, levels, ...
-    "LineWidth", 1.5);
+contour(ax, X, Y, Zplot, levels, ...
+    "LineWidth", paperStyle.PlotLineWidth);
 
 colormap(turbo);
 
-cb = colorbar;
+cb = colorbar(ax);
 cb.Label.Interpreter = "latex";
 cb.Label.String = "$\log_{10}(\epsilon)$";
 
@@ -64,18 +68,16 @@ xlabel("$\mathrm{Re}(z)$", "Interpreter", "latex");
 ylabel("$\mathrm{Im}(z)$", "Interpreter", "latex");
 %title("Pseudospectrum", "Interpreter", "latex");
 
-axis equal tight;
-box on;
-set(gca, "FontSize", 12, "LineWidth", 1.0);
+axis(ax, 'equal');
+axis(ax, 'tight');
+box(ax, 'on');
+set(ax, "FontName", paperStyle.FontName, ...
+    "FontSize", paperStyle.TickFontSize, ...
+    "LineWidth", paperStyle.AxesLineWidth);
 
 outpdf = fullfile(figDir, "ex5_pseudospectrum.pdf");
 outpng = fullfile(figDir, "ex5_pseudospectrum.png");
 
-exportgraphics(gcf, outpdf, ...
-    "ContentType", "vector", ...
-    "BackgroundColor", "white");
-exportgraphics(gcf, outpng, ...
-    "Resolution", 300, ...
-    "BackgroundColor", "white");
+voltopt_export_figure(fig, ax, outpdf, outpng, 'standard');
 
 fprintf('Figure saved to:\n  %s\n  %s\n', outpdf, outpng);

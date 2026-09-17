@@ -9,6 +9,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 dataFile = fullfile(scriptDir, 'data', 'adaptive_oscillation.csv');
 figureDir = fullfile(scriptDir, 'figures');
 if ~isfile(dataFile)
@@ -43,13 +45,14 @@ end
 set(groot, 'defaultAxesFontName', 'Times New Roman');
 set(groot, 'defaultTextFontName', 'Times New Roman');
 set(groot, 'defaultLegendFontName', 'Times New Roman');
-set(groot, 'defaultAxesFontSize', 12);
-set(groot, 'defaultLineLineWidth', 1.5);
+set(groot, 'defaultAxesFontSize', paperStyle.TickFontSize);
+set(groot, 'defaultLineLineWidth', paperStyle.PlotLineWidth);
 
 %% Figure 1: accepted grid degree
-fig1 = figure('Color', 'w', 'Position', [100, 100, 720, 520]);
+fig1 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 semilogy(omega, acceptedM, '-o', ...
-    'LineWidth', 1.5, ...
+    'LineWidth', paperStyle.PlotLineWidth, ...
     'MarkerSize', 6, ...
     'DisplayName', '$M$ (degree; $M+1$ points)');
 box on; grid on;
@@ -62,15 +65,15 @@ ax.FontSize = 12;
 ax.YScale = 'log';
 ax.YMinorGrid = 'on';
 ax.MinorGridLineStyle = ':';
-exportgraphics(fig1, fullfile(figureDir, 'adaptive_accepted_grid.pdf'), ...
-    'ContentType', 'vector');
-exportgraphics(fig1, fullfile(figureDir, 'adaptive_accepted_grid.png'), ...
-    'Resolution', 300);
+voltopt_export_figure(fig1, ax, ...
+    fullfile(figureDir, 'adaptive_accepted_grid.pdf'), ...
+    fullfile(figureDir, 'adaptive_accepted_grid.png'));
 
 %% Figure 2: maximum error against the fixed high-resolution reference
-fig2 = figure('Color', 'w', 'Position', [100, 100, 720, 520]);
+fig2 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 semilogy(omega, errorInf, '-s', ...
-    'LineWidth', 1.5, ...
+    'LineWidth', paperStyle.PlotLineWidth, ...
     'MarkerSize', 6, ...
     'DisplayName', '$\|F_{\mathrm{adaptive}}-F_{\mathrm{ref}}\|_{\infty}$');
 box on; grid on;
@@ -83,10 +86,9 @@ ax.FontSize = 12;
 ax.YScale = 'log';
 ax.YMinorGrid = 'on';
 ax.MinorGridLineStyle = ':';
-exportgraphics(fig2, fullfile(figureDir, 'adaptive_error_inf.pdf'), ...
-    'ContentType', 'vector');
-exportgraphics(fig2, fullfile(figureDir, 'adaptive_error_inf.png'), ...
-    'Resolution', 300);
+voltopt_export_figure(fig2, ax, ...
+    fullfile(figureDir, 'adaptive_error_inf.pdf'), ...
+    fullfile(figureDir, 'adaptive_error_inf.png'));
 
 fprintf('Saved adaptive compVolt figures to: %s\n', figureDir);
 

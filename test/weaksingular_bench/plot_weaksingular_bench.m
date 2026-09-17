@@ -33,6 +33,8 @@ scriptDir = fileparts(mfilename('fullpath'));
 if isempty(scriptDir)
     scriptDir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(scriptDir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 dataDir = fullfile(scriptDir, 'data');
 figDir  = fullfile(scriptDir, 'figures');
@@ -58,11 +60,11 @@ T_fixedN = readtable(fixedNFile);
 %% Plot options
 timeCol = 't_total';
 
-lineWidthMain  = 2.0;
-lineWidthRef   = 1.6;
-fontSize       = 12;
-labelFontSize  = 12;
-legendFontSize = 12;
+lineWidthMain  = paperStyle.PlotLineWidth;
+lineWidthRef   = paperStyle.PlotLineWidth;
+fontSize       = paperStyle.TickFontSize;
+labelFontSize  = paperStyle.LabelFontSize;
+legendFontSize = paperStyle.LegendFontSize;
 
 %% Reference-line options for fixed C, varying N
 refN_power   = 2;
@@ -127,7 +129,8 @@ timeN = timeN(validN);
 timeN = timeN(idxN);
 
 %% Figure 1: fixed C, varying N
-fig1 = figure('Color', 'w');
+fig1 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 hold on;
 
 plot(N, timeN, '-', ...
@@ -173,11 +176,9 @@ set(ax, ...
 grid on;
 box on;
 
-exportgraphics(fig1, fullfile(figDir, 'weak_fixedC_varyN_timing.pdf'), ...
-    'ContentType', 'vector');
-
-exportgraphics(fig1, fullfile(figDir, 'weak_fixedC_varyN_timing.png'), ...
-    'Resolution', 300);
+voltopt_export_figure(fig1, ax, ...
+    fullfile(figDir, 'weak_fixedC_varyN_timing.pdf'), ...
+    fullfile(figDir, 'weak_fixedC_varyN_timing.png'));
 
 %% Data: fixed N, varying n
 if ismember('C_rows', T_fixedN.Properties.VariableNames)
@@ -200,7 +201,8 @@ timen = timen(validn);
 timen = timen(idxn);
 
 %% Figure 2: fixed N, varying n
-fig2 = figure('Color', 'w');
+fig2 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 hold on;
 
 plot(n, timen, '-', ...
@@ -246,11 +248,9 @@ set(ax, ...
 grid on;
 box on;
 
-exportgraphics(fig2, fullfile(figDir, 'weak_fixedN_varyC_timing.pdf'), ...
-    'ContentType', 'vector');
-
-exportgraphics(fig2, fullfile(figDir, 'weak_fixedN_varyC_timing.png'), ...
-    'Resolution', 300);
+voltopt_export_figure(fig2, ax, ...
+    fullfile(figDir, 'weak_fixedN_varyC_timing.pdf'), ...
+    fullfile(figDir, 'weak_fixedN_varyC_timing.png'));
 
 fprintf('Saved figures to: %s\n', figDir);
 

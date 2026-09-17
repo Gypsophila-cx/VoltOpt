@@ -48,6 +48,42 @@ end
     )
     @test !check.resolved
     @test check.outside_max == 1e-8
+    @test check.outside_tail == 1e-8
+
+    # Individually small coefficients are not a resolved tail when their
+    # absolute sum exceeds the threshold.
+    threshold = 1e-10
+    accumulated_tail = zeros(17)
+    accumulated_tail[1] = 1.0
+    accumulated_tail[10:17] .= 0.4threshold
+    check = Example6PicardUnderTest.strict_tail_chop(
+        accumulated_tail, 16, threshold, 1.0,
+    )
+    @test !check.resolved
+
+    # A full tail whose absolute sum is below the threshold may be chopped.
+    resolved_tail = zeros(17)
+    resolved_tail[1] = 1.0
+    resolved_tail[2:9] .= 1e-3
+    resolved_tail[10:17] .= 0.1threshold
+    check = Example6PicardUnderTest.strict_tail_chop(
+        resolved_tail, 16, threshold, 1.0,
+    )
+    @test check.resolved
+    @test check.cutoff == 9
+    @test check.tail <= check.threshold
+
+    # Modes beyond N are unresolved when their absolute sum is too large,
+    # even if each coefficient is individually below the threshold.
+    accumulated_outside_tail = zeros(34)
+    accumulated_outside_tail[1] = 1.0
+    accumulated_outside_tail[18:20] .= 0.4threshold
+    check = Example6PicardUnderTest.strict_tail_chop(
+        accumulated_outside_tail, 16, threshold, 1.0,
+    )
+    @test check.outside_max < check.threshold
+    @test check.outside_tail > check.threshold
+    @test !check.resolved
 
     resolved = zeros(34)
     resolved[1:2] .= (1.0, 0.5)

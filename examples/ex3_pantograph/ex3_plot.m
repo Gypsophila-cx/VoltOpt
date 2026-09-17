@@ -25,6 +25,8 @@ this_dir = fileparts(mfilename('fullpath'));
 if isempty(this_dir)
     this_dir = pwd;
 end
+addpath(fullfile(fileparts(fileparts(this_dir)), 'tools'));
+paperStyle = voltopt_plot_style();
 
 data_dir = fullfile(this_dir, 'data');
 fig_dir  = fullfile(this_dir, 'figures');
@@ -66,20 +68,21 @@ err = T.(err_col);
 
 %% Plot error decay curve
 
-fig1 = figure('Color', 'w');
-semilogy(N, err, 'LineWidth', 1.8);
+fig1 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
+semilogy(N, err, 'LineWidth', paperStyle.PlotLineWidth);
 xlabel('$N$', 'Interpreter', 'latex');
 ylabel('error', 'Interpreter', 'latex');
 
 box on;
 %grid on;
 
-set(gca, 'FontName', 'Times New Roman', 'FontSize', 13);
+ax1 = gca;
+set(ax1, 'FontName', 'Times New Roman', 'FontSize', 12);
 
-exportgraphics(fig1, fullfile(fig_dir, 'ex3_error.pdf'), ...
-               'ContentType', 'vector');
-exportgraphics(fig1, fullfile(fig_dir, 'ex3_error.png'), ...
-               'Resolution', 300);
+voltopt_export_figure(fig1, ax1, ...
+    fullfile(fig_dir, 'ex3_error.pdf'), ...
+    fullfile(fig_dir, 'ex3_error.png'));
 
 %% Read coefficient matrix and draw sparsity pattern
 
@@ -97,18 +100,19 @@ else
     Nmax = size(A, 1) - 1;
 end
 
-fig3 = figure('Color', 'w');
+fig3 = figure('Color', 'w', 'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize]);
 spy(sparse(A), 'k.', 5);
 xlabel('column index', 'Interpreter', 'latex');
 ylabel('row index', 'Interpreter', 'latex');
 axis square;
 box on;
 
-set(gca, 'FontName', 'Times New Roman', 'FontSize', 13);
+ax3 = gca;
+set(ax3, 'FontName', 'Times New Roman', 'FontSize', 12);
 
-exportgraphics(fig3, fullfile(fig_dir, 'ex3_matrix_spy.pdf'), ...
-               'ContentType', 'vector');
-exportgraphics(fig3, fullfile(fig_dir, 'ex3_matrix_spy.png'), ...
-               'Resolution', 300);
+voltopt_export_figure(fig3, ax3, ...
+    fullfile(fig_dir, 'ex3_matrix_spy.pdf'), ...
+    fullfile(fig_dir, 'ex3_matrix_spy.png'), 'square');
 
 fprintf('Figures saved to:\n  %s\n', fig_dir);

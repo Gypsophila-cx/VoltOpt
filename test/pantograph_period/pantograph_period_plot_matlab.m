@@ -7,18 +7,16 @@
 
 script_fullpath = mfilename('fullpath');
 script_dir = fileparts(script_fullpath);
+addpath(fullfile(fileparts(fileparts(script_dir)), 'tools'));
+paperStyle = voltopt_plot_style();
 data_file = fullfile( ...
     script_dir, 'data', 'pantograph_period_T1000_curve.csv');
 
 rotation_angle_deg = 10.0;    % Counterclockwise rotation about the origin.
-line_width = 0.5;
+line_width = paperStyle.PlotLineWidth;
 line_color = [0, 0, 0];
 line_alpha = 1.0;             % See compatibility note below.
 line_style = '-';
-
-figure_width_px = 1000;
-figure_height_px = 1000;
-dpi = 300;
 
 x_limits = [];               % Example: [-20, 20]; [] uses automatic limits.
 y_limits = [];               % Example: [-20, 20]; [] uses automatic limits.
@@ -64,8 +62,8 @@ end
 
 fig = figure( ...
     'Color', 'w', ...
-    'Units', 'pixels', ...
-    'Position', [100, 100, figure_width_px, figure_height_px], ...
+    'Units', 'centimeters', ...
+    'Position', [2, 2, paperStyle.FigureSize], ...
     'Visible', figure_visibility, ...
     'InvertHardcopy', 'off');
 ax = axes(fig, 'Position', [0, 0, 1, 1]);
@@ -128,24 +126,18 @@ if ~isfolder(output_directory)
 end
 
 written_files = {};
+png_path = '';
+pdf_path = '';
 if save_png
     png_path = [actual_basename, '.png'];
-    exportgraphics( ...
-        fig, ...
-        png_path, ...
-        'Resolution', dpi, ...
-        'BackgroundColor', 'white');
     written_files{end + 1} = png_path; %#ok<SAGROW>
 end
 if save_pdf
     pdf_path = [actual_basename, '.pdf'];
-    exportgraphics( ...
-        fig, ...
-        pdf_path, ...
-        'ContentType', 'vector', ...
-        'BackgroundColor', 'white');
     written_files{end + 1} = pdf_path; %#ok<SAGROW>
 end
+
+voltopt_export_figure(fig, ax, pdf_path, png_path, 'phase');
 
 fprintf('MATLAB Figure 2 phase plot completed.\n');
 fprintf('  data points: %d\n', height(curve));

@@ -37,7 +37,7 @@ const α = 100.0
 const λ = 1.0
 const oracle_tol = eps(Float64)
 const tol_quad = 100eps(Float64)
-const tol_picard = 100eps(Float64)
+const tol_picard = 10eps(Float64)
 const tol_chop = 10eps(Float64)
 const tol_rhs = 10eps(Float64)
 const N0 = 32
@@ -189,6 +189,8 @@ function strict_tail_chop(
     magnitudes = abs.(Float64.(c_full))
     outside_max = length(c_full) > N + 1 ?
         maximum(@view magnitudes[(N + 2):end]) : 0.0
+    outside_tail = length(c_full) > N + 1 ?
+        sum(@view magnitudes[(N + 2):end]) : 0.0
 
     if all(iszero, magnitudes)
         return (
@@ -197,27 +199,27 @@ function strict_tail_chop(
             plateau=true,
             threshold=threshold,
             outside_max=outside_max,
+            outside_tail=outside_tail,
             tail=0.0,
             margin_coefficients=N + 1,
         )
     end
 
-    envelope = similar(magnitudes)
+    tail_sum = similar(magnitudes)
     running = 0.0
     @inbounds for i in length(magnitudes):-1:1
-        running = max(running, magnitudes[i])
-        envelope[i] = running
+        running += magnitudes[i]
+        tail_sum[i] = running
     end
 
-    plateau_index = findfirst(x -> x <= threshold, envelope)
-    margin_coefficients = plateau_index === nothing || plateau_index > N + 1 ?
-        0 : N + 2 - plateau_index
-    margin_ok = margin_coefficients >= tail_margin
-    outside_ok = outside_max <= threshold
-    resolved = plateau_index !== nothing && margin_ok && outside_ok
+    plateau_index = findfirst(x -> x <= threshold, tail_sum)
     cutoff = plateau_index === nothing ? min(length(c_full), N + 1) :
         max(1, plateau_index - 1)
-    tail = plateau_index === nothing ? envelope[end] : envelope[plateau_index]
+    margin_coefficients = cutoff <= N + 1 ? N + 1 - cutoff : 0
+    margin_ok = margin_coefficients >= tail_margin
+    outside_ok = outside_tail <= threshold
+    resolved = plateau_index !== nothing && margin_ok && outside_ok
+    tail = cutoff < length(c_full) ? tail_sum[cutoff + 1] : 0.0
 
     return (
         resolved=resolved,
@@ -225,6 +227,7 @@ function strict_tail_chop(
         plateau=plateau_index !== nothing,
         threshold=threshold,
         outside_max=outside_max,
+        outside_tail=outside_tail,
         tail=tail,
         margin_coefficients=margin_coefficients,
     )
@@ -369,7 +372,7 @@ function build_fixed_rhs()
     last_tail = strict_tail_chop(
         coefficients,
         degree,
-        tol_rhs,
+        tol_chop,
         max(1.0, maximum(abs, values), maximum(abs, coefficients)),
     )
 
@@ -400,7 +403,7 @@ function build_fixed_rhs()
         coarse_on_fine = cheb_eval_many(coefficients, fine_nodes)
         consistency = maximum(abs.(coarse_on_fine .- fine_values)) / rhs_scale
         tail = strict_tail_chop(
-            fine_coefficients, fine_degree, tol_rhs, rhs_scale,
+            fine_coefficients, fine_degree, tol_chop, rhs_scale,
         )
 
         if consistency <= tol_rhs && tail.resolved
@@ -424,6 +427,27 @@ function build_fixed_rhs()
         last_consistency = consistency
         last_tail = tail
     end
+end
+
+function fixed_rhs_representation_check(
+    c_g::AbstractVector,
+    x_eval::AbstractVector,
+)
+    rule_cache = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
+    error_inf = 0.0
+    max_quad_indicator = 0.0
+    max_q_used = 0
+    @inbounds for x in x_eval
+        reference, indicator, q_used = fixed_rhs_value(Float64(x), rule_cache)
+        error_inf = max(error_inf, abs(cheb_eval(c_g, x) - reference))
+        max_quad_indicator = max(max_quad_indicator, indicator)
+        max_q_used = max(max_q_used, q_used)
+    end
+    return (
+        error_inf=error_inf,
+        max_quad_indicator=max_quad_indicator,
+        max_q_used=max_q_used,
+    )
 end
 
 function independent_residual_check(
@@ -648,6 +672,7 @@ function adaptive_picard_solve(
             failure_reason = (
                 "update unresolved at Nmax=$Nmax: tail=$(tail.tail), " *
                 "threshold=$(tail.threshold), outside_max=$(tail.outside_max), " *
+                "outside_tail=$(tail.outside_tail), " *
                 "margin_coefficients=$(tail.margin_coefficients)"
             )
             break
@@ -720,6 +745,7 @@ function main()
     independent = independent_residual_check(
         result.coefficients, c_g, x_eval,
     )
+    rhs_check = fixed_rhs_representation_check(c_g, x_eval)
     final_row = result.history[end]
     final_eqgrid_err = maximum(abs.(
         cheb_eval_many(result.coefficients, x_eval) .- u_exact_eval,
@@ -735,6 +761,9 @@ function main()
         rhs_info.tail, rhs_info.threshold)
     @printf("rhs max quad indicator    = %.16e (max q %d)\n",
         rhs_info.max_quad_indicator, rhs_info.max_q_used)
+    @printf("rhs eqgrid err            = %.16e\n", rhs_check.error_inf)
+    @printf("rhs check quad indicator  = %.16e (max q %d)\n",
+        rhs_check.max_quad_indicator, rhs_check.max_q_used)
     @printf("initial residual ρ0       = %.16e\n", result.ρ0)
     @printf("stopping eta              = %.16e\n", result.stopping_eta)
     @printf("accepted Picard updates   = %d\n", result.accepted_iterations)
@@ -754,6 +783,7 @@ function main()
     return (
         result=result,
         rhs=rhs_info,
+        rhs_check=rhs_check,
         independent=independent,
         final_eqgrid_err=final_eqgrid_err,
         total_runtime_sec=total_runtime,
