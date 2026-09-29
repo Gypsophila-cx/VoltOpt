@@ -162,7 +162,6 @@ function plot_timing_curves(T, outPdf, outPng)
     ax.FontName = 'Times New Roman';
     ax.XScale = 'log';
     ax.YScale = 'log';
-    ax.LooseInset = max(ax.TightInset, 0.04);
     % ax.XGrid = 'on';
     % ax.YGrid = 'on';
     % ax.YMinorGrid = 'on';

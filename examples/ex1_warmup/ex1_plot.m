@@ -46,7 +46,7 @@ timing_csv = fullfile(data_dir, ...
 
 % Set to true to plot only Duffy--Chebyshev.
 % In this mode, no legend is displayed.
-only_duffy_chebyshev = true;
+only_duffy_chebyshev = false;
 
 % Set to false to plot only Duffy--Chebyshev and Gutleb--Olver.
 % Set to true to also include the Duffy--Legendre curve.

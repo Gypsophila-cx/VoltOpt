@@ -61,6 +61,8 @@ colormap(turbo);
 cb = colorbar(ax);
 cb.Label.Interpreter = "latex";
 cb.Label.String = "$\log_{10}(\epsilon)$";
+cb.Label.FontName = paperStyle.FontName;
+cb.Label.FontSize = paperStyle.LabelFontSize;
 
 clim([min(levels), max(levels)]);
 
@@ -75,9 +77,28 @@ set(ax, "FontName", paperStyle.FontName, ...
     "FontSize", paperStyle.TickFontSize, ...
     "LineWidth", paperStyle.AxesLineWidth);
 
+% Keep the pseudospectrum on the same fixed canvas and with the same data
+% axes box as the Figure 5 reference panel.  Move only the colorbar into the
+% available right margin; it must not participate in axes layout.
+drawnow;
+ax.Units = 'centimeters';
+ax.PositionConstraint = 'innerposition';
+ax.InnerPosition = paperStyle.AxesInnerPosition;
+
+fixedColorbarPosition = paperStyle.StandardColorbarPosition;
+fixedColorbarPosition(1) = paperStyle.FigureSize(1) - ...
+    paperStyle.StandardColorbarRightInset - ...
+    paperStyle.StandardColorbarWidth;
+fixedColorbarPosition(2:4) = [paperStyle.AxesInnerPosition(2), ...
+    paperStyle.StandardColorbarWidth, paperStyle.AxesInnerPosition(4)];
+cb.Units = 'centimeters';
+cb.Position = fixedColorbarPosition;
+drawnow;
+ax.InnerPosition = paperStyle.AxesInnerPosition;
+
 outpdf = fullfile(figDir, "ex5_pseudospectrum.pdf");
 outpng = fullfile(figDir, "ex5_pseudospectrum.png");
 
-voltopt_export_figure(fig, ax, outpdf, outpng, 'standard');
+voltopt_export_figure(fig, ax, outpdf, outpng, 'standard-fixed');
 
 fprintf('Figure saved to:\n  %s\n  %s\n', outpdf, outpng);

@@ -1,5 +1,5 @@
 function voltopt_export_figure(fig, axesList, pdfFile, pngFile, layout)
-%VOLTOPT_EXPORT_FIGURE Apply the paper style and export fixed-size PDF/PNG.
+%VOLTOPT_EXPORT_FIGURE Apply fixed paper geometry and export PDF/PNG.
 
 if nargin < 5
     layout = 'standard';
@@ -7,11 +7,27 @@ end
 
 style = voltopt_plot_style();
 axesList = axesList(isgraphics(axesList, 'axes'));
+colorbars = findall(fig, 'Type', 'ColorBar');
 
-if strcmpi(layout, 'multipanel')
-    figureSize = style.MultiPanelFigureSize;
-else
-    figureSize = style.FigureSize;
+switch lower(layout)
+    case 'standard'
+        if isempty(colorbars)
+            figureSize = style.FigureSize;
+        else
+            figureSize = style.StandardColorbarFigureSize;
+        end
+    case 'standard-fixed'
+        % A standard data box plus decorations that have already been
+        % placed explicitly inside the ordinary standard canvas.
+        figureSize = style.FigureSize;
+    case 'square'
+        figureSize = style.SquareFigureSize;
+    case 'phase'
+        figureSize = style.PhaseFigureSize;
+    case 'multipanel'
+        figureSize = style.MultiPanelFigureSize;
+    otherwise
+        error('Unknown VoltOpt figure layout: %s', layout);
 end
 
 fig.Units = 'centimeters';
@@ -49,7 +65,6 @@ for k = 1:numel(legends)
     legends(k).FontSize = style.LegendFontSize;
 end
 
-colorbars = findall(fig, 'Type', 'ColorBar');
 for k = 1:numel(colorbars)
     colorbars(k).FontName = style.FontName;
     colorbars(k).FontSize = style.TickFontSize;
@@ -61,6 +76,8 @@ drawnow;
 switch lower(layout)
     case 'standard'
         position_colorbars(colorbars, style.StandardColorbarPosition);
+        set_inner_positions(axesList, style.AxesInnerPosition);
+    case 'standard-fixed'
         set_inner_positions(axesList, style.AxesInnerPosition);
     case 'square'
         position_colorbars(colorbars, style.SquareColorbarPosition);
@@ -80,7 +97,7 @@ drawnow;
 % Reassert the data-axes box after those updates so labels, legends, and
 % colorbars cannot change its physical size.
 switch lower(layout)
-    case 'standard'
+    case {'standard', 'standard-fixed'}
         set_inner_positions(axesList, style.AxesInnerPosition);
     case 'square'
         set_inner_positions(axesList, style.SquareAxesInnerPosition);
@@ -89,18 +106,38 @@ switch lower(layout)
 end
 drawnow;
 
-fig.PaperUnits = 'centimeters';
-fig.PaperPositionMode = 'manual';
-fig.PaperPosition = [0.0, 0.0, figureSize];
-fig.PaperSize = figureSize;
-fig.InvertHardcopy = 'off';
-fig.Renderer = 'painters';
+% Export the fixed figure canvas.  R2025a added explicit canvas dimensions
+% and figure padding to exportgraphics.  Earlier releases use print because
+% exportgraphics crops each figure to its individual content boundary.
+if isMATLABReleaseOlderThan('R2025a')
+    fig.PaperUnits = 'centimeters';
+    fig.PaperPositionMode = 'manual';
+    fig.PaperPosition = [0.0, 0.0, figureSize];
+    fig.PaperSize = figureSize;
+    fig.InvertHardcopy = 'off';
+    fig.Renderer = 'painters';
 
-if ~isempty(pdfFile)
-    print(fig, pdfFile, '-dpdf', '-painters');
-end
-if ~isempty(pngFile)
-    print(fig, pngFile, '-dpng', sprintf('-r%d', style.ExportResolution));
+    if ~isempty(pdfFile)
+        print(fig, pdfFile, '-dpdf', '-vector');
+    end
+    if ~isempty(pngFile)
+        print(fig, pngFile, '-dpng', ...
+            sprintf('-r%d', style.ExportResolution));
+    end
+else
+    if ~isempty(pdfFile)
+        exportgraphics(fig, pdfFile, ...
+            'Width', figureSize(1), 'Height', figureSize(2), ...
+            'Units', 'centimeters', 'ContentType', 'vector', ...
+            'BackgroundColor', 'white', 'Padding', 'figure');
+    end
+    if ~isempty(pngFile)
+        exportgraphics(fig, pngFile, ...
+            'Width', figureSize(1), 'Height', figureSize(2), ...
+            'Units', 'centimeters', ...
+            'Resolution', style.ExportResolution, ...
+            'BackgroundColor', 'white', 'Padding', 'figure');
+    end
 end
 end
 
@@ -120,7 +157,7 @@ end
 end
 
 function position_colorbars(colorbars, position)
-if numel(colorbars) == 1
+if isscalar(colorbars)
     colorbars(1).Units = 'centimeters';
     colorbars(1).Position = position;
 end

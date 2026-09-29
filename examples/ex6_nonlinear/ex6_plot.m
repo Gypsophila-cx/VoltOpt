@@ -139,7 +139,6 @@ lgd.Position = legBox;
 ax2.Units = oldAxUnits;
 lgd.Units = oldLegUnits;
 drawnow;
-set(ax2, 'LooseInset', max(get(ax2, 'TightInset'), 0.04));
 
 voltopt_export_figure(fig2, ax2, ...
     fullfile(figDir, 'ex6_picard_eqgrid_error_history.pdf'), ...
