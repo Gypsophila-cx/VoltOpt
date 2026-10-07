@@ -7,13 +7,13 @@ reproducible numerical experiments for smooth and weakly singular kernels.
 
 The project includes:
 
-- smooth Volterra operator construction in Chebyshev (Duffy-transformed kernel,
+- fast smooth Volterra operator construction in Chebyshev (Duffy-transformed kernel,
   recurrence construction, and FFT-accelerated Toeplitz--Hankel assembly),
   Legendre (a dedicated strictly banded construction), and general Jacobi
   bases (product linearization, recurrent/compressed moment tables, and
   top-dense/band-tail construction);
-- weakly singular Volterra construction using mapped Chebyshev/JFP-type bases;
-- fast composed and nonlinear Volterra--Urysohn actions;
+- fast weakly singular Volterra construction using mapped Chebyshev/JFP-type bases;
+- fast computation for smooth nonlinear Volterra integrals;
 - numerical examples for Volterra equations and related spectral experiments;
 - benchmark scripts, including Gutleb--Olver-type comparisons where applicable.
 
@@ -109,7 +109,7 @@ Bleg  = voltmat_leg(K, N)
 Bjac  = voltmat_jacobi(K, N, 0.3, 0.2)
 ```
 
-#### Common Duffy formulation
+#### Duffy formulation
 
 All three smooth implementations start with the collapsed-coordinate map
 
@@ -608,7 +608,7 @@ structures:
   matrix application scale linearly with `N`. This dedicated construction
   does not use the Chebyshev Toeplitz--Hankel FFT path.
 
-For equal transformed-kernel degrees `m=n`, the paper-level assembly estimates
+For equal transformed-kernel degrees `m=n`, the assembly estimates
 are
 
 ```math
@@ -616,10 +616,6 @@ are
 \qquad
 \text{generic Jacobi: }O(n^3N).
 ```
-
-These distinguish the FFT structure from generic Jacobi assembly; the cache
-and recurrence organization described above is not a claim of a new, better
-general-Jacobi asymptotic bound.
 
 ### Weakly Singular Volterra Matrices
 
@@ -647,7 +643,7 @@ Restriction matrices are implemented in:
 Chebyshev transform and interpolation helpers are provided by
 `src/chebtechs.jl`, `src/vals2cheb.jl`, and `src/cheb2vals.jl`.
 
-### Composed and Nonlinear Volterra Actions
+### Nonlinear Volterra Integral Computation
 
 Fast composed Volterra actions and nonlinear Volterra--Urysohn utilities are in
 `src/CompVolt/`.  Exported routines include `compVolt`, `compVolt_fast`,
@@ -991,24 +987,3 @@ including `test/smooth_bench/plot_end2end_smooth_bench.m`,
   already exist in the local `data/` subdirectory.
 - Run `julia --project=. -e "using Pkg; Pkg.test()"` for lightweight package
   smoke tests only. This does not run the benchmark scripts.
-
-## Development Notes
-
-- Do not modify `src/` when only adding examples, benchmarks, or plotting
-  scripts.
-- Put benchmark CSV output in the benchmark directory's local `data/` folder.
-- Put generated benchmark figures in the benchmark directory's local
-  `figures/` folder.
-- Put diagnostic MAT output and generated diagnostic figures in the diagnostic
-  directory's local `data/` and `figures/` folders.
-- Prefer explicit paths based on `@__DIR__` in Julia scripts.
-- Keep generated data paths local to the example or benchmark directory that
-  produced them.
-- Run the static layout audit with:
-
-```bash
-julia --project=. tools/audit_layout.jl
-```
-
-The audit checks expected directories, key scripts, root-level generated
-artifacts, and stale README paths. It does not run examples or benchmarks.
