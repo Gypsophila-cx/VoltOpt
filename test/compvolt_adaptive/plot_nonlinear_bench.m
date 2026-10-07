@@ -86,19 +86,19 @@ function plot_timing_curves(T, outPdf, outPng)
 
     % Reference-line vertical shifts.
     % Values smaller than 1 move the dashed reference lines downward.
-    lineCompVoltN2logN_yScale = 0.65;
+    lineCompVoltN2logN_yScale = 0.75;
     lineClenshawN3_yScale     = 0.65;
 
     % compVolt auxiliary line: O(N^2 log N).
     % On log-log axes, xShift and yShift are multiplicative factors.
     labelCompVoltN2logN_xShift   = 1.00;  % >1 moves right, <1 moves left
-    labelCompVoltN2logN_yShift   = 0.25;  % >1 moves up,    <1 moves down
+    labelCompVoltN2logN_yShift   = 0.2;  % >1 moves up,    <1 moves down
     labelCompVoltN2logN_fontSize = 12;
 
     % Clenshaw auxiliary line: O(N^3).
     % On log-log axes, xShift and yShift are multiplicative factors.
     labelClenshawN3_xShift   = 1.25;      % >1 moves right, <1 moves left
-    labelClenshawN3_yShift   = 0.75;      % >1 moves up,    <1 moves down
+    labelClenshawN3_yShift   = 0.55;      % >1 moves up,    <1 moves down
     labelClenshawN3_fontSize = 12;
 
     fig = figure('Color', 'w', 'Units', 'centimeters', ...

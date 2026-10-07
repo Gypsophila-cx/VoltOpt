@@ -221,11 +221,8 @@ function cheb_eval_many(c::AbstractVector{<:Real}, x::AbstractVector{<:Real})
     return vals
 end
 
-function make_test_grid(p; Mglobal=8001, Mlocal=5001)
-    xg = collect(range(-1.0, 1.0; length=Mglobal))
-    xl1 = collect(range(max(-1.0, p.x1 - 0.04), min(1.0, p.x1 + 0.04); length=Mlocal))
-    xl2 = collect(range(max(-1.0, p.x2 - 0.05), min(1.0, p.x2 + 0.05); length=Mlocal))
-    return sort(unique(vcat(xg, xl1, xl2, [p.x1, p.x2])))
+function make_test_grid(p)
+    return collect(range(-1.0, 1.0; length=10_000))
 end
 
 

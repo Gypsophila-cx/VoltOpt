@@ -92,7 +92,7 @@ ax2.YAxis(2).Label.Color = 'k';
 
 hold(ax2, 'off');
 set(ax2, 'XScale', 'linear');
-xlabel(ax2, 'intermediate iterations');
+xlabel(ax2, 'iterations');
 box(ax2, 'on');
 set(ax2, 'FontSize', fontSize);
 xlim(ax2, [min(intermediateIter), max(intermediateIter)]);
@@ -108,7 +108,7 @@ drawnow;
 lgd.Units = 'normalized';
 legendPos = lgd.Position;
 legendPos(1) = legendPos(1) - 0.02;
-legendPos(2) = legendPos(2) - 0.19;
+legendPos(2) = legendPos(2) - 0.1;
 lgd.Position = legendPos;
 
 % Keep the manually positioned legend strictly inside the final axes box.
