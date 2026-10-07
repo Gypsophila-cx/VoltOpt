@@ -7,8 +7,11 @@ reproducible numerical experiments for smooth and weakly singular kernels.
 
 The project includes:
 
-- smooth Volterra operator construction in Chebyshev, Legendre, and Jacobi
-  polynomial bases;
+- smooth Volterra operator construction in Chebyshev (Duffy-transformed kernel,
+  recurrence construction, and FFT-accelerated Toeplitz--Hankel assembly),
+  Legendre (a dedicated strictly banded construction), and general Jacobi
+  bases (product linearization, recurrent/compressed moment tables, and
+  top-dense/band-tail construction);
 - weakly singular Volterra construction using mapped Chebyshev/JFP-type bases;
 - fast composed and nonlinear Volterra--Urysohn actions;
 - numerical examples for Volterra equations and related spectral experiments;
@@ -43,7 +46,10 @@ VoltOpt/
 |_ others/                      external/reference comparison code
 |  |_ GutlebOlver/              Gutleb--Olver-type comparison implementation
 |  |_ FracCollocation/          fractional-collocation comparison implementation
-|_ tools/                       static layout and maintenance helpers
+|_ tools/                       shared paper-figure and repository helpers
+|  |_ voltopt_plot_style.m      shared MATLAB paper-figure style and fixed geometry
+|  |_ voltopt_export_figure.m   common fixed-canvas PDF/PNG export helper
+|  |_ audit_layout.jl           repository/static layout audit
 ```
 
 Several example, benchmark, and diagnostic directories contain local `data/`
@@ -63,11 +69,6 @@ Smooth-kernel Volterra matrix construction is implemented in:
 - `src/VoltMat/voltmat_leg.jl`
 - `src/VoltMat/voltmat_jacobi.jl`
 
-The corresponding exported module aliases and constructors include
-`VoltMat_Cheb`, `VoltMat_Leg`, `VoltMat_Jacobi`, `voltmat_cheb`,
-`voltmat_cheb_square`, `voltmat_square_from_coeffmat_fft_convolution`,
-`voltmat_leg`, and `voltmat_jacobi`.
-
 These routines discretize Volterra operators of the form
 
 ```math
@@ -75,6 +76,550 @@ These routines discretize Volterra operators of the form
 ```
 
 in polynomial coefficient bases.
+
+The public API is grouped by basis and purpose:
+
+- Chebyshev (`VoltMat_Cheb`): `voltmat_cheb` constructs the square operator
+  matrix from a kernel or its transformed coefficient matrix;
+  `voltmat_cheb_square` and
+  `voltmat_square_from_coeffmat_fft_convolution` are aliases of this constructor.
+- Legendre (`VoltMat_Leg`): `voltmat_leg` constructs the operator, while
+  `legendre_volterra_symband_from_C` assembles the band from known coefficients.
+  `legendre_interp_coeffs_Khat` and `adaptive_legendre_interp_coeffs_Khat`
+  construct transformed-kernel coefficients. `legendre_values`,
+  `legendre_values!`, and `gausslegendre_rule` provide basis values and
+  quadrature nodes/weights.
+- Jacobi (`VoltMat_Jacobi`): `voltmat_jacobi` uses the integrated
+  `voltmat_jacobi_full` constructor; `jacobi_volterra_topdense_from_C` constructs
+  the dense leading block. `jacobi_interp_coeffs_Khat` and
+  `adaptive_jacobi_interp_coeffs_Khat` construct transformed-kernel coefficients.
+  `jacobi_values`, `jacobi_values!`, and `gaussjacobi_nodes` provide basis values
+  and interpolation nodes.
+
+For example:
+
+```julia
+using VoltOpt
+
+K(x, y) = exp(-x*y)
+N = 200
+
+Bcheb = voltmat_cheb(K, N)
+Bleg  = voltmat_leg(K, N)
+Bjac  = voltmat_jacobi(K, N, 0.3, 0.2)
+```
+
+#### Common Duffy formulation
+
+All three smooth implementations start with the collapsed-coordinate map
+
+```math
+\psi(x,t)=\frac{x+1}{2}t+\frac{x-1}{2},
+\qquad
+\widehat K(x,t)=K\bigl(x,\psi(x,t)\bigr).
+```
+
+The Duffy transform moves kernel construction from the Volterra triangle to a
+tensor-product approximation on the standard square, giving
+
+```math
+(\mathcal V_K u)(x)
+=\frac{1+x}{2}\int_{-1}^{1}
+\widehat K(x,t)u\bigl(\psi(x,t)\bigr)\,dt.
+```
+
+The factor `(1+x)/2` is included in coefficient assembly. For Jacobi
+parameters `alpha, beta > -1`, write
+
+```math
+p_q(x)=P_q^{(\alpha,\beta)}(x),
+\qquad
+\widehat K(x,t)\approx
+\sum_{i=0}^{n}\sum_{j=0}^{m}C_{ij}p_i(x)p_j(t).
+```
+
+Here `i` and `j` index the outer and transformed integration modes, and `n`,
+`m` are their maximum retained degrees. Thus `C` has size `(n+1, m+1)`, with
+mathematical entry `C_ij` stored as `C[i+1,j+1]`. It contains coefficients of
+the transformed/absorbed kernel `K(x, psi(x,t))`, not direct tensor-product
+coefficients of the original `K(x,y)`. This is the meaning of `C` in
+`voltmat_jacobi(C, ...)` and `voltmat_leg(C, ...)` (and the analogous Chebyshev
+interface). The final matrix is denoted by `B`; its column `k` acts on input
+mode `k`, and row `ell` is output mode `ell`. The square truncation retains
+modes `0:N`.
+
+#### General Jacobi construction
+
+##### Key structural identities
+
+The Duffy--Chebyshev construction extends to Legendre and general Jacobi
+bases through the same two essential algebraic ingredients: affine
+restriction has an explicit shifted-Jacobi representation, and polynomial
+products linearize back into the same Jacobi basis.
+
+Use the standard normalization and weight
+
+```math
+\begin{gathered}
+P_n^{(\alpha,\beta)}(1)=\frac{(\alpha+1)_n}{n!},\qquad \alpha,\beta>-1,\\
+w_{\alpha,\beta}(x)=(1-x)^\alpha(1+x)^\beta,\qquad \lambda=\alpha+\beta.
+\end{gathered}
+```
+
+Here `(a)_n` is the Pochhammer symbol and `B(a,b)` below is the beta function.
+The indices `j` and `i` denote input and restricted degrees. The map
+
+```math
+\psi(t,x)=\frac{t+1}{2}x+\frac{t-1}{2}=\psi(x,t)
+```
+
+maps `[-1,1]` to `[-1,t]` in `x`. Its symmetry makes this notation consistent
+with the preceding Duffy formulation. For `0 <= i <= j`,
+
+```math
+\begin{gathered}
+\int_{-1}^{1}P_i^{(\alpha,\beta)}(x)
+P_j^{(\alpha,\beta)}\!\left(\frac{t+1}{2}x+\frac{t-1}{2}\right)
+w_{\alpha,\beta}(x)\,dx
+=\kappa_{ij}^{(\alpha,\beta)}
+\left(\frac{t+1}{2}\right)^i P_{j-i}^{(-1,\lambda+2i+1)}(t),\\
+\kappa_{ij}^{(\alpha,\beta)}=2^{\lambda+1}\frac{(j+\lambda+1)_i}{i!}
+B(\alpha+i+1,\beta+i+1)
+\frac{(\beta+i+1)_{j-i}}{(\lambda+2i+2)_{j-i}}.
+\end{gathered}
+```
+
+For `i>j` the integral vanishes by orthogonality: restriction preserves degree
+`j`. Define the squared Jacobi norm and restriction coefficients by
+
+```math
+\begin{gathered}
+h_i^{(\alpha,\beta)}=\int_{-1}^{1}[P_i^{(\alpha,\beta)}(x)]^2w_{\alpha,\beta}(x)\,dx,\\
+P_j^{(\alpha,\beta)}(\psi(t,x))
+=\sum_{i=0}^{j}R_{ij}^{(\alpha,\beta)}(-1,t)P_i^{(\alpha,\beta)}(x).
+\end{gathered}
+```
+
+Dividing the projection by the norm gives the actual matrix coefficient:
+
+```math
+\begin{gathered}
+R_{ij}^{(\alpha,\beta)}(-1,t)=\rho_{ij}^{(\alpha,\beta)}
+\left(\frac{t+1}{2}\right)^i P_{j-i}^{(-1,\lambda+2i+1)}(t),\\
+\rho_{ij}^{(\alpha,\beta)}=\frac{\kappa_{ij}^{(\alpha,\beta)}}{h_i^{(\alpha,\beta)}}
+=\frac{(j+\lambda+1)_i}{(i+\lambda+1)_i}
+\frac{(\beta+i+1)_{j-i}}{(\lambda+2i+2)_{j-i}}.
+\end{gathered}
+```
+
+Each coefficient is an elementary power `((1+t)/2)^i` times a single shifted
+Jacobi polynomial. Restriction stays in a parameterized Jacobi family, the
+structure exploited by Volterra assembly, rather than an unstructured dense
+operation. `restmat_jacobi` constructs the same restriction by coefficient-space
+three-term recurrence, avoiding direct evaluation of this analytic closed form.
+
+For `alpha=beta=-1/2`, conversion to Chebyshev normalization gives, for
+`j >= 1` and `0 <= i <= j`,
+
+```math
+\begin{gathered}
+T_n=\frac{n!}{(1/2)_n}P_n^{(-1/2,-1/2)},\\
+\int_{-1}^{1}T_i(x)T_j\!\left(\frac{t+1}{2}x+\frac{t-1}{2}\right)
+\frac{dx}{\sqrt{1-x^2}}
+=\frac{\pi j}{i+j}\left(\frac{t+1}{2}\right)^i P_{j-i}^{(-1,2i)}(t).
+\end{gathered}
+```
+
+The paper's Chebyshev identity is thus the normalized Jacobi specialization,
+not merely an analogous formula. Handle `j=0` separately: the constant mode
+`T_0=1` has `i=0` projection `pi`.
+
+For `alpha=beta=0` and `lambda=0`, the same formula gives
+
+```math
+R_{ij}^{\mathrm{Leg}}(-1,t)
+=\frac{(j+1)_i}{(i+1)_i}\frac{(i+1)_{j-i}}{(2i+2)_{j-i}}
+\left(\frac{1+t}{2}\right)^i P_{j-i}^{(-1,2i+1)}(t).
+```
+
+This restriction structure underlies the dedicated Legendre construction.
+The second identity linearizes modes `p` and `q` into output modes `r`:
+
+```math
+\begin{gathered}
+P_p^{(\alpha,\beta)}(x)P_q^{(\alpha,\beta)}(x)
+=\sum_{r=|p-q|}^{p+q}\mu_{p,q,r}^{(\alpha,\beta)}P_r^{(\alpha,\beta)}(x),\\
+\mu_{p,q,r}^{(\alpha,\beta)}=\frac{1}{h_r^{(\alpha,\beta)}}\int_{-1}^{1}
+P_p^{(\alpha,\beta)}(x)P_q^{(\alpha,\beta)}(x)P_r^{(\alpha,\beta)}(x)
+w_{\alpha,\beta}(x)\,dx.
+\end{gathered}
+```
+
+Coefficients vanish outside `|p-q| <= r <= p+q`. A nonsymmetric Jacobi
+weight generally has no further parity restriction; for symmetric families,
+including Legendre, parity removes every other mode. In contrast,
+
+```math
+T_p(x)T_q(x)=\frac12\left(T_{p+q}(x)+T_{|p-q|}(x)\right).
+```
+
+Chebyshev's exceptional two-term linearization produces its Toeplitz--Hankel
+FFT convolution. General Jacobi products have finite local support but many
+modes, so this acceleration does not carry over directly. This is a central
+reason for the different paper-level assembly estimates given below.
+
+##### Recurrence construction
+
+`jacobi_interp_coeffs_Khat` samples the transformed kernel on Gauss--Jacobi
+nodes and solves with Jacobi Vandermonde matrices in both coordinates to obtain
+`C`. The adaptive version chops the two-dimensional coefficient tails. The
+current general Jacobi matrix constructor requires `size(C,1) >= size(C,2)`;
+the adaptive constructor enforces this by default.
+
+For a polynomial degree `q`, multiplication by the coordinate has the
+three-term form
+
+```math
+xP_q^{(\alpha,\beta)}
+=A_qP_{q+1}^{(\alpha,\beta)}
++B_qP_q^{(\alpha,\beta)}
++C_qP_{q-1}^{(\alpha,\beta)}.
+```
+
+This tridiagonal relation drives both product linearization and the final
+local multiplication by `(1+x)/2`. The coefficients used in the code, for
+`q >= 1`, are
+
+```math
+A_q=\frac{2(q+1)(q+\lambda+1)}
+{(2q+\lambda+1)(2q+\lambda+2)},
+\qquad
+B_q=\frac{\beta^2-\alpha^2}{(2q+\lambda)(2q+\lambda+2)},
+\qquad
+C_q=\frac{2(q+\alpha)(q+\beta)}
+{(2q+\lambda)(2q+\lambda+1)}.
+```
+
+These are the coefficients of `_jacobi_x_coeffs`; the subscripted scalar
+`C_q` is distinct from the kernel matrix `C`. The degree-zero case is handled
+separately:
+
+```math
+A_0=\frac{2}{\alpha+\beta+2},
+\qquad
+B_0=\frac{\beta-\alpha}{\alpha+\beta+2},
+\qquad C_0=0.
+```
+
+This initializes the recurrence without referring to a negative-degree
+polynomial. Product linearization then takes the form
+
+```math
+P_i^{(\alpha,\beta)}(x)P_\ell^{(\alpha,\beta)}(x)
+=\sum_s L_s^{(i,\ell)}P_s^{(\alpha,\beta)}(x).
+```
+
+The index `s` is the resulting outer Jacobi mode. Starting from the constant
+factor, the multiplication recurrence gives
+
+```math
+L_s^{(0,\ell)}=\delta_{s\ell},\qquad
+L_s^{(i+1,\ell)}=\frac{1}{A_i}\left[
+A_{s-1}L_{s-1}^{(i,\ell)}+(B_s-B_i)L_s^{(i,\ell)}
++C_{s+1}L_{s+1}^{(i,\ell)}-C_iL_s^{(i-1,\ell)}\right].
+```
+
+Out-of-range terms are zero. `_apply_x_local` and `_combine_next` implement
+these adjacent-mode contributions; `_linearization_cache` generates the local
+coefficients needed for band assembly, avoiding a global dense tensor of `mu`.
+
+After the Duffy transform, symmetry of `psi` permits outer-variable restriction:
+
+```math
+P_k^{(\alpha,\beta)}(\psi(x,t))
+=\sum_{s=0}^{k}R_{sk}^{(\alpha,\beta)}(-1,t)P_s^{(\alpha,\beta)}(x).
+```
+
+Kernel expansion introduces products `P_i(x)P_s(x)`; linearization returns
+them to the Jacobi basis, leaving the one-dimensional projected moments below.
+**Restriction and product linearization are the two fundamental identities
+behind the Jacobi extension; the remaining recurrences efficiently evaluate
+and assemble the coefficients implied by these identities.**
+
+For the banded tail, let `r = k-s >= 0` be the offset from outer mode `s` to
+input mode `k`, and define auxiliary functions
+
+```math
+z=\frac{1+t}{2},
+\qquad \Psi_{s,0}(t)=z^s,
+\qquad
+\Psi_{s,r}(t)=(t-1)z^sP_{r-1}^{(1,\lambda+2s+1)}(t)
+\quad (r\ge1).
+```
+
+These encode the restriction/projection moments needed at fixed `s`. Write the
+projected moment table (called `G` internally) as
+
+```math
+\mathcal G_{j,r}^{(s)}
+=\gamma_{s,r}\int_{-1}^{1}
+P_j^{(\alpha,\beta)}(t)\Psi_{s,r}(t)\,dt.
+```
+
+The scale `gamma` converts the auxiliary Jacobi representation to the target
+Jacobi projection; `_projection_scale` implements the normalization from
+Jacobi norms and projection constants. These integrals use ordinary `dt`;
+the target Jacobi weight enters the projection normalization.
+
+The default production backend is `G_backend=:recurrence`. Its first two
+Jacobi layers use the scalar moments
+
+```math
+J_{0,r}^{(s)}=\int_{-1}^{1}\Psi_{s,r}(t)\,dt,
+\qquad
+M_r^{(s)}=\int_{-1}^{1}z\Psi_{s,r}(t)\,dt.
+```
+
+They initialize the `j=0` and `j=1` layers before applying the projection
+scale. With fixed `s` suppressed, the recurrence initialization is
+
+```math
+\begin{aligned}
+r=0:&\quad J_{0,0}=\frac{2}{s+1},
+&&M_0=\frac{2}{s+2},\\
+r=1:&\quad J_{0,1}=-\frac{4}{(s+1)(s+2)},
+&&M_1=-\frac{4}{(s+2)(s+3)}.
+\end{aligned}
+```
+
+These explicit seeds start the stable adjacent-ratio recurrence used for
+`r >= 2`:
+
+```math
+\frac{J_{0,r}}{J_{0,r-1}}
+=-\frac{r}{r-1}\frac{\lambda+s+r-1}{s+r+1},
+\qquad
+\frac{M_r}{M_{r-1}}
+=-\frac{r}{r-1}\frac{\lambda+s+r-2}{s+r+2}.
+```
+
+The code multiplies the previous moments by these ratios, avoiding monomial
+expansion. The first Jacobi polynomial gives the next layer:
+
+```math
+P_1^{(\alpha,\beta)}(t)=(\lambda+2)z-(\beta+1),
+\qquad
+J_{1,r}=(\lambda+2)M_r-(\beta+1)J_{0,r}.
+```
+
+Higher `j` layers follow by combining Jacobi multiplication recurrences for
+the target and auxiliary polynomials. With `init_layer_backend=:auto`, the
+initial layers use log-gamma evaluation when `alpha+beta > 2`, and recurrence
+initialization otherwise. `G_backend=:moments` is an alternative direct
+moment-evaluation path for validation or use in place of the forward
+recurrence; it is not the default.
+
+The kernel and moment tables are compressed along `j` before matrix assembly:
+
+```math
+(C\mathcal G)_s(i,r)=\sum_{j=0}^{m}C_{ij}\mathcal G_{j,r}^{(s)}.
+```
+
+These cached `CG` tables avoid repeating the full kernel-mode summation for
+each matrix entry. To obtain the intermediate coefficient in row `ell`,
+column `k` of `Phi`, product linearization supplies mode `s`, the compressed
+table supplies its restriction moment at `r=k-s`, and division by the squared Jacobi norm of output mode
+`ell` completes the coefficient projection. Tail assembly evaluates only the
+entries needed for the requested band and its adjacent intermediate rows.
+The final relation is
+
+```math
+B=\frac12(I+M_x)\Phi.
+```
+
+Here `M_x` is the tridiagonal coefficient matrix for multiplication by `x` in
+the target Jacobi basis. Assembly retains the necessary neighboring `Phi`
+rows before truncating the output to modes `0:N`.
+
+For non-Legendre Jacobi parameters, the final matrix is almost banded: the
+constructor explicitly combines dense leading rows with a symmetric banded
+tail. The defaults are `n_top = min(size(C,1), N+1)` and half-bandwidth
+`min(size(C,1), N)`. Here symmetric band means equal upper and lower bandwidths,
+not a symmetric matrix.
+
+The dense top block has a separate `(s,k)` recurrence, rather than an
+extrapolation of the tail recurrence. Its unscaled quantities are
+
+```math
+T_{j,k}^{s}=\int_{-1}^{1}P_j^{(\alpha,\beta)}(t)
+\left(\frac{1+t}{2}\right)^s
+P_{k-s}^{(-1,\lambda+2s+1)}(t)\,dt,
+\qquad k\ge s.
+```
+
+These auxiliary moments cover all input columns needed by the leading rows.
+The implemented recurrence advances in `s`:
+
+```math
+(k+s+\lambda+1)T_{j,k}^{s+1}
++(k-s-2)T_{j,k-1}^{s+1}
+=(k-s)T_{j,k}^{s}
++(k+s+\lambda+1)T_{j,k-1}^{s}.
+```
+
+It builds successive layers from the `s=0` layer; projection then uses
+
+```math
+\mathcal H_{j,k}^{s}=\rho_{s,k}T_{j,k}^{s}.
+```
+
+Here the projected-moment scale `rho` is the factor `kappa` above, before
+division by the Jacobi norm. After kernel compression, the same product
+linearization and norm division assemble dense top `Phi`, then `(I+M_x)/2`.
+
+The production `s=0` initialization is the mixed Jacobi recurrence in
+`_tilde_H0_mixed!`, with the same recurrence/log-gamma initialization selection.
+A BigFloat initialization helper remains in the source, but it is not the
+default construction; `init_precision` is retained primarily for API
+compatibility. General Jacobi construction does not require BigFloat.
+
+#### Legendre specialization
+
+The Legendre implementation specializes the same two structural identities to
+
+```math
+\alpha=\beta=0,\qquad P_q^{(0,0)}=P_q.
+```
+
+VoltOpt uses the dedicated `src/VoltMat/voltmat_leg.jl` implementation to
+exploit this case's additional symmetry and strict bandedness. Its restriction
+factor and parity-restricted product linearization are
+
+```math
+\begin{gathered}
+\left(\frac{1+t}{2}\right)^i P_{j-i}^{(-1,2i+1)}(t),\\
+P_p(x)P_q(x)=\sum_{a=0}^{\min(p,q)}
+\mu_{p,q,p+q-2a}^{(0,0)}P_{p+q-2a}(x).
+\end{gathered}
+```
+
+The prefactor is given above; product modes have the parity of `p+q`. These
+structures underlie `H`/`CH` and strict-band assembly. The transformed kernel is
+
+```math
+\widehat K(x,t)\approx
+\sum_{i=0}^{n}\sum_{j=0}^{m}C_{ij}P_i(x)P_j(t).
+```
+
+Here `C` is obtained by Gauss--Legendre interpolation of the same Duffy kernel.
+The dedicated construction uses auxiliary moments denoted by `H` below, in
+the normalization of `voltmat_leg.jl`. For each fixed `s`, it builds
+`H[j+1,r+1] = H_{j,s+r}^s`. The `j=0` layer is explicit in `_H0_entry`:
+
+```math
+H_{0,s}^{s}=\frac{2}{s+1}.
+```
+
+This is the separate `r=0` seed, including `s=0`. For even offsets `r=2p >= 2`,
+the seed is
+
+```math
+H_{0,s+2p}^{s}
+=\frac{2(2s+2p+1)}{(s+2p)(s+2p+1)}.
+```
+
+This branch is used only for positive even offsets. For odd offsets
+`r=2p+1`, with `p >= 0`, the seed is
+
+```math
+H_{0,s+2p+1}^{s}
+=-\frac{4(s+p+1)}{(s+2p+1)(s+2p+2)}.
+```
+
+Together these initialize the full `j=0` layer. Subsequent layers are
+generated recurrently using the Legendre relation
+
+```math
+P_{j+1}(t)=\frac{2j+1}{j+1}tP_j(t)
+-\frac{j}{j+1}P_{j-1}(t).
+```
+
+`_fill_H_for_s!` combines this with multiplication by `t` for the auxiliary
+Jacobi polynomials. The resulting moments are compressed with the kernel:
+
+```math
+CH_s(i,r)=\sum_{j=0}^{m}C_{ij}H_{j,s+r}^{s}.
+```
+
+The implementation provides dense and ragged caches for these quantities;
+`ch_backend=:auto` selects storage using problem size and estimated memory.
+For kernel mode `i` and output mode `ell`, the product formula above gives
+`s=i+ell-2a`. Its Legendre product-linearization (Adams) coefficients are
+generated by recurrence and cached; they are not a separate numerical
+integration formula.
+`alpha_backend=:auto` likewise chooses dense or ragged coefficient storage.
+Combining the coefficients with `CH` and the projection normalization gives
+the intermediate matrix `Phi`.
+
+Finally, multiplication by `(1+x)/2` uses
+
+```math
+xP_q(x)=\frac{q+1}{2q+1}P_{q+1}(x)
++\frac{q}{2q+1}P_{q-1}(x).
+```
+
+Reading this as a coefficient transformation, output row `ell` receives
+contributions from intermediate rows `ell-1`, `ell`, and `ell+1`:
+
+```math
+B_{\ell k}
+=\frac12\Phi_{\ell k}
++\mathbf 1_{\ell\ge1}\frac{\ell}{2(2\ell-1)}\Phi_{\ell-1,k}
++\frac{\ell+1}{2(2\ell+3)}\Phi_{\ell+1,k}.
+```
+
+This is the row indexing used by `_assemble_symband`, including the separate
+lower boundary at `ell=0` and any extra intermediate row needed at the upper
+truncation boundary.
+
+Under the Duffy-compatible transformed-kernel construction used here, the
+Legendre specialization has no dense leading correction. The general Jacobi
+constructor therefore sets `n_top = 0` for `alpha=beta=0` and identifies the
+structure as `:strict_band`. The dedicated `voltmat_leg` constructs only the
+symmetric band, with default half-bandwidth `size(C,1)` capped at `N`, and
+further exploits the Legendre-specific `H` recurrence, `CH` compression, and
+product linearization. This structure statement concerns coefficients of the
+Duffy-transformed kernel used here; it does not assert that an arbitrary
+tensor-product matrix `C` represents a smooth original Volterra kernel.
+
+#### Matrix structure and implementation notes
+
+The three paths share the Duffy formulation but have different assembly
+structures:
+
+- Chebyshev matrices are almost banded. Recurrence construction and
+  Toeplitz--Hankel convolution support the FFT-accelerated assembly discussed
+  in the paper; this is the default `assembly=:fft` path.
+- General non-Legendre Jacobi matrices have a dense top and banded tail.
+  There is no corresponding Toeplitz--Hankel convolution in general. The
+  current implementation organizes work through recurrent product
+  linearization, recurrent/compressed moment tables, and sparse assembly.
+- Legendre matrices are strictly banded. For fixed kernel degree, storage and
+  matrix application scale linearly with `N`. This dedicated construction
+  does not use the Chebyshev Toeplitz--Hankel FFT path.
+
+For equal transformed-kernel degrees `m=n`, the paper-level assembly estimates
+are
+
+```math
+\text{Chebyshev: }O(n^2\log n\,N),
+\qquad
+\text{generic Jacobi: }O(n^3N).
+```
+
+These distinguish the FFT structure from generic Jacobi assembly; the cache
+and recurrence organization described above is not a claim of a new, better
+general-Jacobi asymptotic bound.
 
 ### Weakly Singular Volterra Matrices
 
@@ -236,6 +781,18 @@ matlab -batch "run('examples/ex5_psespectra/ex5_plot.m')"
 - Data directory: `examples/ex6_nonlinear/data/`
 - Figures directory: `examples/ex6_nonlinear/figures/`
 
+The main `ex6_nonlinear_picard.jl` experiment solves a manufactured nonlinear
+Volterra--Urysohn equation by plain Picard/fixed-point iteration. Its fixed
+manufactured right-hand side is constructed independently by adaptive
+Gauss--Legendre quadrature. The working polynomial degree starts at `N0=32`;
+if a complete nonlinear update is not sufficiently resolved, the degree is
+refined without advancing the Picard state. The CSV records intermediate
+attempts/refinements as well as accepted Picard steps. `ex6_plot.m` uses this
+history to plot the error together with the current working degree `N`.
+
+`ex6_fixed10_varyN.jl` is a separate fixed-10-Picard degree study, sweeping
+`N = 10, 20, 40, 80, 160, 320, 640, 1024, 2048, 4096`.
+
 ```bash
 julia --project=. examples/ex6_nonlinear/ex6_nonlinear_picard.jl
 julia --project=. examples/ex6_nonlinear/ex6_fixed10_varyN.jl
@@ -356,6 +913,12 @@ The `test/sparse_spy/` directory stores a two-stage diagnostic workflow for
 colored sparsity plots of Volterra coefficient matrices in Chebyshev,
 Legendre, and Jacobi bases. It is not a benchmark sweep.
 
+The current diagnostic uses `K(x,y)=exp(-x*y)` and Jacobi parameters
+`(alpha,beta)=(0.3,0.2)`. Its structure plots visualize the almost-banded
+Chebyshev, strictly banded Legendre, and top-dense/band-tail general Jacobi
+constructions described above. They provide diagnostic confirmation of the
+computed structure, not a mathematical proof.
+
 The Julia script constructs the matrices and writes a MATLAB data file:
 
 ```bash
@@ -398,6 +961,14 @@ The current layout convention is:
 - Diagnostic scripts under `test/sparse_spy/` follow the same local `data/`
   and `figures/` convention.
 - Older retained snapshots should live in local `legacy/` subdirectories.
+
+Most MATLAB paper figures use the shared helpers
+`tools/voltopt_plot_style.m` and `tools/voltopt_export_figure.m` to enforce
+common fonts, axes geometry, figure canvas sizes, and PDF/PNG export settings.
+The supported fixed layout classes include `standard`, `standard-fixed`,
+`square`, `phase`, and `multipanel`. Individual example/benchmark scripts
+remain responsible for data content and graphical elements; the helpers
+provide the common paper geometry, style, and export behavior.
 
 Some plotting scripts add tail reference lines or complexity labels to timing
 figures, for example visual guides such as `O(N)`, `O(N^2 log N)`, or `O(N^3)`.
