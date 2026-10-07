@@ -37,7 +37,6 @@ const α = 100.0
 const λ = 1.0
 const oracle_tol = eps(Float64)
 const tol_quad = 100eps(Float64)
-const tol_picard = 10eps(Float64)
 const tol_chop = 10eps(Float64)
 const tol_rhs = 10eps(Float64)
 const N0 = 32
@@ -45,7 +44,7 @@ const Nmax = 4096
 const Mmax = 8192
 const max_refinements = 8
 const maxit = 100
-const M_eval = 4001
+const M_error_eval = 1000
 const rhs_q0 = 16
 const rhs_qmax = 4096
 const rhs_Nmax = Nmax
@@ -431,13 +430,13 @@ end
 
 function fixed_rhs_representation_check(
     c_g::AbstractVector,
-    x_eval::AbstractVector,
+    x_error_eval::AbstractVector,
 )
     rule_cache = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
     error_inf = 0.0
     max_quad_indicator = 0.0
     max_q_used = 0
-    @inbounds for x in x_eval
+    @inbounds for x in x_error_eval
         reference, indicator, q_used = fixed_rhs_value(Float64(x), rule_cache)
         error_inf = max(error_inf, abs(cheb_eval(c_g, x) - reference))
         max_quad_indicator = max(max_quad_indicator, indicator)
@@ -453,13 +452,13 @@ end
 function independent_residual_check(
     c_num::AbstractVector,
     c_g::AbstractVector,
-    x_eval::AbstractVector,
+    x_residual_check::AbstractVector,
 )
     rule_cache = Dict{Int,Tuple{Vector{Float64},Vector{Float64}}}()
     residual_inf = 0.0
     max_quad_indicator = 0.0
     max_q_used = 0
-    @inbounds for x in x_eval
+    @inbounds for x in x_residual_check
         if x == -1.0
             integral = 0.0
             indicator = 0.0
@@ -533,8 +532,8 @@ end
 
 function adaptive_picard_solve(
     c_g::AbstractVector,
-    x_eval::AbstractVector,
-    u_exact_eval::AbstractVector,
+    x_error_eval::AbstractVector,
+    u_exact_error_eval::AbstractVector,
     rhs_build_time_sec::Real,
 )
     c_old = zeros(Float64, N0 + 1)
@@ -544,14 +543,14 @@ function adaptive_picard_solve(
     iter = 0
     intermediate_iter = 0
     ρ0 = nothing
-    stopping_eta = nothing
+    stopping_resolution_relative = nothing
     converged = false
     failure_reason = ""
     picard_t0 = time()
 
     while true
-        u_old_eval = cheb_eval_many(c_old, x_eval)
-        eqgrid_err = maximum(abs.(u_old_eval .- u_exact_eval))
+        u_old_error_eval = cheb_eval_many(c_old, x_error_eval)
+        eqgrid_err = maximum(abs.(u_old_error_eval .- u_exact_error_eval))
         x_nodes = nested_chebyshev_nodes(N)
         node_err = maximum(abs.(cheb_eval_many(c_old, x_nodes) .- uexact.(x_nodes)))
 
@@ -612,20 +611,33 @@ function adaptive_picard_solve(
             maximum(abs, candidate),
         )
         tail = strict_tail_chop(delta_full, N, tol_chop, update_scale)
-        residual_values = cheb_eval_many(delta_full, x_eval)
-        residual = maximum(abs, residual_values)
-        residual_relative = residual / max(1.0, maximum(abs, u_old_eval))
+        # The coefficient l1 norm bounds the Chebyshev sup norm because |T_j(x)| <= 1.
+        residual = sum(abs, delta_full)
+        residual_scale = max(
+            1.0,
+            sum(abs, c_old),
+            sum(abs, candidate),
+        )
+        residual_relative = residual / residual_scale
 
         status = "accepted"
         accepted = false
         if !tail.resolved
             status = N >= Nmax ? "Nmax" : "refine_N"
         else
+            tail_resolution_relative = tail.threshold / update_scale
+            action_resolution_relative = abs(λ) * max(
+                Float64(info.eta),
+                Float64(info.theta),
+            )
+            stopping_resolution_relative = max(
+                tail_resolution_relative,
+                action_resolution_relative,
+            )
             if ρ0 === nothing
-                ρ0 = residual
-                stopping_eta = tol_picard * (1.0 + ρ0)
+                ρ0 = residual_relative
             end
-            if residual <= stopping_eta
+            if residual_relative <= stopping_resolution_relative
                 status = "converged"
             elseif iter >= maxit
                 status = "maxit"
@@ -698,7 +710,7 @@ function adaptive_picard_solve(
         N=history[end].N,
         N_eff=length(c_old) - 1,
         ρ0=ρ0,
-        stopping_eta=stopping_eta,
+        stopping_resolution_relative=stopping_resolution_relative,
         converged=converged,
         failure_reason=failure_reason,
         total_picard_time_sec=time() - picard_t0,
@@ -711,8 +723,8 @@ function main()
     data_dir = joinpath(@__DIR__, "data")
     mkpath(data_dir)
     history_csv = joinpath(data_dir, "ex6_nonlinear_picard_results.csv")
-    x_eval = collect(range(-1.0, 1.0; length=M_eval))
-    u_exact_eval = uexact.(x_eval)
+    x_error_eval = collect(range(-1.0, 1.0; length=M_error_eval))
+    u_exact_error_eval = uexact.(x_error_eval)
 
     println("============================================================")
     println("Example 6: adaptive nonlinear Picard history")
@@ -721,19 +733,19 @@ function main()
     @printf("λ                        = %.1f\n", λ)
     @printf("oracle_tol               = %.16e\n", oracle_tol)
     @printf("tol_quad                 = %.16e\n", tol_quad)
-    @printf("tol_picard               = %.16e\n", tol_picard)
     @printf("tol_chop                 = %.16e\n", tol_chop)
     @printf("tol_rhs                  = %.16e\n", tol_rhs)
     @printf("N0, Nmax                 = %d, %d\n", N0, Nmax)
     @printf("Mmax, max_refinements    = %d, %d\n", Mmax, max_refinements)
-    @printf("maxit, M_eval            = %d, %d\n", maxit, M_eval)
+    @printf("maxit                    = %d\n", maxit)
+    @printf("error observation points = %d\n", M_error_eval)
     @printf("rhs q0, qmax, Nmax       = %d, %d, %d\n", rhs_q0, rhs_qmax, rhs_Nmax)
     println("These tolerances are experiment settings, not error guarantees.")
     println("============================================================")
 
     c_g, rhs_info = build_fixed_rhs()
     result = adaptive_picard_solve(
-        c_g, x_eval, u_exact_eval, rhs_info.rhs_build_time_sec,
+        c_g, x_error_eval, u_exact_error_eval, rhs_info.rhs_build_time_sec,
     )
     write_history_csv(history_csv, result.history)
 
@@ -742,13 +754,14 @@ function main()
         error("Example 6 failed: $(result.failure_reason)")
     end
 
+    x_residual_check = nested_chebyshev_nodes(result.N)
     independent = independent_residual_check(
-        result.coefficients, c_g, x_eval,
+        result.coefficients, c_g, x_residual_check,
     )
-    rhs_check = fixed_rhs_representation_check(c_g, x_eval)
+    rhs_check = fixed_rhs_representation_check(c_g, x_error_eval)
     final_row = result.history[end]
     final_eqgrid_err = maximum(abs.(
-        cheb_eval_many(result.coefficients, x_eval) .- u_exact_eval,
+        cheb_eval_many(result.coefficients, x_error_eval) .- u_exact_error_eval,
     ))
     total_runtime = time() - script_t0
 
@@ -764,13 +777,14 @@ function main()
     @printf("rhs eqgrid err            = %.16e\n", rhs_check.error_inf)
     @printf("rhs check quad indicator  = %.16e (max q %d)\n",
         rhs_check.max_quad_indicator, rhs_check.max_q_used)
-    @printf("initial residual ρ0       = %.16e\n", result.ρ0)
-    @printf("stopping eta              = %.16e\n", result.stopping_eta)
+    @printf("initial relative defect ρ0 = %.16e\n", result.ρ0)
+    @printf("final stopping resolution = %.16e\n", result.stopping_resolution_relative)
     @printf("accepted Picard updates   = %d\n", result.accepted_iterations)
     @printf("intermediate attempts     = %d\n", result.intermediate_attempts)
     @printf("final N / N_eff / M       = %d / %d / %d\n",
         result.N, result.N_eff, final_row.M)
-    @printf("final full residual       = %.16e\n", final_row.residual)
+    @printf("final coefficient defect  = %.16e\n", final_row.residual)
+    @printf("final relative defect     = %.16e\n", final_row.residual_relative)
     @printf("independent residual      = %.16e\n", independent.residual_inf)
     @printf("independent quad indicator= %.16e (max q %d)\n",
         independent.max_quad_indicator, independent.max_q_used)

@@ -33,7 +33,7 @@ const ALPHA = 100.0
 const LAMBDA = 1.0
 const tol = eps(Float64)
 const FIXED_ITERS = 10
-const M_eval = 4001
+const M_error_eval = 1000
 
 # A moderate logarithmic/benchmark-oriented sweep from 10 to 5000.
 # For a dense sweep, replace this by collect(10:10:5000), but that will be much slower.
@@ -171,14 +171,14 @@ function write_varyN_csv(path::AbstractString, results)
     end
 end
 
-function run_one_N(N::Int, x_eval::AbstractVector{Float64})
+function run_one_N(N::Int, x_error_eval::AbstractVector{Float64})
     total_t0 = time()
 
     grid = CompVoltGrid(N)
     x_nodes = grid.x
 
     u_exact_vals = uexact.(x_nodes)
-    u_exact_eval = uexact.(x_eval)
+    u_exact_error_eval = uexact.(x_error_eval)
 
     rhs_t0 = time()
     c_exact = ascending_values_to_cheb_coeffs(u_exact_vals)
@@ -210,8 +210,8 @@ function run_one_N(N::Int, x_eval::AbstractVector{Float64})
     final_nodes = u_old_nodes
     final_node_err = norm(final_nodes - u_exact_vals, Inf)
 
-    u_num_eval = cheb_eval_many(c_num, x_eval)
-    final_eqgrid_err = maximum(abs.(u_num_eval .- u_exact_eval))
+    u_num_error_eval = cheb_eval_many(c_num, x_error_eval)
+    final_eqgrid_err = maximum(abs.(u_num_error_eval .- u_exact_error_eval))
 
     # Compute the true fixed-point residual after exactly FIXED_ITERS Picard steps.
     residual_t0 = time()
@@ -245,7 +245,7 @@ function main()
     data_dir = joinpath(@__DIR__, "data")
     mkpath(data_dir)
 
-    x_eval = collect(range(-1.0, 1.0; length=M_eval))
+    x_error_eval = collect(range(-1.0, 1.0; length=M_error_eval))
     results = NamedTuple[]
 
     println("============================================================")
@@ -259,7 +259,7 @@ function main()
 
     for N in N_VALUES
         GC.gc()
-        r = run_one_N(N, x_eval)
+        r = run_one_N(N, x_error_eval)
         push!(results, r)
         @printf("N = %5d  eqgrid_err = %.3e  node_err = %.3e  residual = %.3e  iter_time = %.4f sec  total = %.4f sec  picard_steps = %d\n",
             r.N, r.final_eqgrid_err, r.final_node_err, r.final_residual_err,
